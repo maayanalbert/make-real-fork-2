@@ -31,7 +31,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 		return {
 			html: '',
 			w: (960 * 2) / 3,
-			h: (540 * 2) / 3,
+			h: 540,
 		}
 	}
 
@@ -72,35 +72,20 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 
 		return (
 			<HTMLContainer className="tl-embed-container" id={shape.id}>
-				{htmlToUse ? (
-					<iframe
-						id={`iframe-1-${shape.id}`}
-						srcDoc={htmlToUse}
-						width={toDomPrecision(shape.props.w)}
-						height={toDomPrecision(shape.props.h)}
-						draggable={false}
-						style={{
-							pointerEvents: isEditing ? 'auto' : 'none',
-							boxShadow,
-							border: '1px solid var(--color-panel-contrast)',
-							borderRadius: 'var(--radius-2)',
-						}}
-					/>
-				) : (
-					<div
-						style={{
-							width: '100%',
-							height: '100%',
-							backgroundColor: 'var(--color-muted-2)',
-							display: 'flex',
-							alignItems: 'center',
-							justifyContent: 'center',
-							border: '1px solid var(--color-muted-1)',
-						}}
-					>
-						<DefaultSpinner />
-					</div>
-				)}
+				<iframe
+					id={`iframe-1-${shape.id}`}
+					src="/embedded"
+					width={toDomPrecision(shape.props.w)}
+					height={toDomPrecision(shape.props.h)}
+					draggable={false}
+					style={{
+						pointerEvents: isEditing ? 'auto' : 'none',
+						boxShadow,
+						border: '1px solid var(--color-panel-contrast)',
+						borderRadius: 'var(--radius-2)',
+					}}
+				/>
+
 				<div
 					style={{
 						position: 'absolute',
@@ -127,35 +112,34 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 				>
 					<TldrawUiIcon icon="duplicate" />
 				</div>
-				{htmlToUse && (
-					<div
+
+				<div
+					style={{
+						textAlign: 'center',
+						position: 'absolute',
+						bottom: isEditing ? -40 : 0,
+						padding: 4,
+						fontFamily: 'inherit',
+						fontSize: 12,
+						left: 0,
+						width: '100%',
+						display: 'flex',
+						alignItems: 'center',
+						justifyContent: 'center',
+						pointerEvents: 'none',
+					}}
+				>
+					<span
 						style={{
-							textAlign: 'center',
-							position: 'absolute',
-							bottom: isEditing ? -40 : 0,
-							padding: 4,
-							fontFamily: 'inherit',
-							fontSize: 12,
-							left: 0,
-							width: '100%',
-							display: 'flex',
-							alignItems: 'center',
-							justifyContent: 'center',
-							pointerEvents: 'none',
+							background: 'var(--color-panel)',
+							padding: '4px 12px',
+							borderRadius: 99,
+							border: '1px solid var(--color-muted-1)',
 						}}
 					>
-						<span
-							style={{
-								background: 'var(--color-panel)',
-								padding: '4px 12px',
-								borderRadius: 99,
-								border: '1px solid var(--color-muted-1)',
-							}}
-						>
-							{isEditing ? 'Click the canvas to exit' : 'Double click to interact'}
-						</span>
-					</div>
-				)}
+						{isEditing ? 'Click the canvas to exit' : 'Double click to interact'}
+					</span>
+				</div>
 			</HTMLContainer>
 		)
 	}
