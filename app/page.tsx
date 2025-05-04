@@ -2,8 +2,6 @@
 
 import dynamic from 'next/dynamic'
 import 'tldraw/tldraw.css'
-import { MakeRealButton } from './components/MakeRealButton'
-import { RiskyButCoolAPIKeyInput } from './components/RiskyButCoolAPIKeyInput'
 import { PreviewShapeUtil } from './PreviewShape/PreviewShape'
 import { FocusPreviewProvider } from './PreviewShape/FocusPreviewContext'
 import { useEffect } from 'react'
@@ -14,9 +12,6 @@ const Tldraw = dynamic(async () => (await import('tldraw')).Tldraw, {
 })
 
 const shapeUtils = [PreviewShapeUtil]
-const components = {
-	SharePanel: () => <MakeRealButton />,
-}
 
 // Component to add initial preview shape
 function InitialPreviewShape() {
@@ -55,8 +50,7 @@ export default function App() {
 	return (
 		<div className="editor">
 			<FocusPreviewProvider>
-				<Tldraw persistenceKey="make-real" components={components} shapeUtils={shapeUtils}>
-					<RiskyButCoolAPIKeyInput />
+				<Tldraw persistenceKey="make-real" shapeUtils={shapeUtils}>
 					<InitialPreviewShape />
 				</Tldraw>
 			</FocusPreviewProvider>

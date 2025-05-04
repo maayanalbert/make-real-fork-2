@@ -1,5 +1,13 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import Script from 'next/script'
+
+// Define the window type to include html2canvas
+declare global {
+	interface Window {
+		html2canvas: (element: HTMLElement, options?: any) => Promise<HTMLCanvasElement>
+	}
+}
 
 // Simple spinner component
 function Spinner() {
@@ -32,18 +40,50 @@ export default function EmbeddedPage() {
 	const iframeRef = useRef<HTMLIFrameElement>(null)
 	const [loading, setLoading] = useState(true)
 	const [error, setError] = useState<string | null>(null)
+	const [html2canvasLoaded, setHtml2canvasLoaded] = useState(false)
 
 	useEffect(() => {
 		// Handle messages from parent frame and pass them to child iframe
 		const handleMessage = (event: MessageEvent) => {
-			if (event.data.action === 'take-screenshot' && iframeRef.current?.contentWindow) {
+			// Handle take-screenshot action
+			if (event.data.action === 'take-screenshot') {
+				if (html2canvasLoaded && typeof window !== 'undefined' && window.html2canvas) {
+					// Take screenshot of the entire page including the iframe
+					window
+						.html2canvas(document.body, {
+							useCORS: true,
+							logging: false,
+							allowTaint: true,
+							foreignObjectRendering: true,
+						})
+						.then((canvas: HTMLCanvasElement) => {
+							const screenshotData = canvas.toDataURL('image/png')
+							// Send screenshot data back to parent window
+							window.parent.postMessage(
+								{
+									screenshot: screenshotData,
+									shapeid: event.data.shapeid,
+								},
+								'*'
+							)
+						})
+						.catch((error: Error) => {
+							console.error('Screenshot error:', error)
+						})
+				} else {
+					console.warn('html2canvas not loaded yet')
+				}
+			}
+
+			// Pass other messages to the inner iframe
+			if (iframeRef.current?.contentWindow) {
 				iframeRef.current.contentWindow.postMessage(event.data, '*')
 			}
 		}
 
 		window.addEventListener('message', handleMessage)
 		return () => window.removeEventListener('message', handleMessage)
-	}, [])
+	}, [html2canvasLoaded])
 
 	const handleIframeLoad = () => {
 		setLoading(false)
@@ -53,6 +93,11 @@ export default function EmbeddedPage() {
 	const handleIframeError = (e: React.SyntheticEvent<HTMLIFrameElement, Event>) => {
 		setError('Failed to load iframe content')
 		console.error('Iframe loading error:', e)
+	}
+
+	const onHtml2CanvasLoad = () => {
+		setHtml2canvasLoaded(true)
+		console.log('html2canvas loaded')
 	}
 
 	return (
@@ -67,6 +112,13 @@ export default function EmbeddedPage() {
 				backgroundColor: '#fff',
 			}}
 		>
+			{/* Load html2canvas for screenshot functionality */}
+			<Script
+				src="https://html2canvas.hertzen.com/dist/html2canvas.min.js"
+				onLoad={onHtml2CanvasLoad}
+				strategy="beforeInteractive"
+			/>
+
 			{/* {loading && (
 				<div
 					style={{
