@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/rules-of-hooks */
-import { ReactElement } from 'react'
+import { ReactElement, useEffect } from 'react'
 import {
 	TLBaseShape,
 	BaseBoxShapeUtil,
@@ -13,7 +13,9 @@ import {
 	SvgExportContext,
 	Vec,
 	TldrawUiIcon,
+	useEditor,
 } from 'tldraw'
+import { useFocusPreview } from './FocusPreviewContext'
 
 export type PreviewShape = TLBaseShape<
 	'response',
@@ -43,6 +45,34 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 	override component(shape: PreviewShape) {
 		const isEditing = useIsEditing(shape.id)
 		const toast = useToasts()
+		const editor = useEditor()
+		const { focusedPreviewId, setFocusedPreviewId } = useFocusPreview()
+
+		// Check if this preview is focused
+		const isFocused = focusedPreviewId === shape.id
+
+		// Track if the shape is selected
+		const isSelected = useValue(
+			'selection',
+			() => {
+				const selectedIds = editor.getSelectedShapeIds()
+				return selectedIds.includes(shape.id)
+			},
+			[editor, shape.id]
+		)
+
+		// Handle selection changes with useEffect
+		useEffect(() => {
+			if (isSelected && shape.type === 'response') {
+				setFocusedPreviewId(shape.id)
+			} else if (focusedPreviewId === shape.id && !isSelected) {
+				// If we want to clear focus only when no shapes are selected:
+				const selectedIds = editor.getSelectedShapeIds()
+				// if (selectedIds.length === 0) {
+				// 	setFocusedPreviewId(null)
+				// }
+			}
+		}, [isSelected, shape.id, shape.type, focusedPreviewId, setFocusedPreviewId, editor])
 
 		const boxShadow = useValue(
 			'box shadow',
@@ -81,7 +111,9 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 					style={{
 						pointerEvents: isEditing ? 'auto' : 'none',
 						boxShadow,
-						border: '1px solid var(--color-panel-contrast)',
+						border: isFocused
+							? '10px solid #3b82f6' // Prominent blue outline when focused
+							: '1px solid var(--color-panel-contrast)',
 						borderRadius: 'var(--radius-2)',
 					}}
 				/>
@@ -100,13 +132,23 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 						pointerEvents: 'all',
 					}}
 					onClick={() => {
-						if (navigator && navigator.clipboard) {
-							navigator.clipboard.writeText(shape.props.html)
-							toast.addToast({
-								icon: 'duplicate',
-								title: 'Copied to clipboard',
-							})
-						}
+						// Create a new preview shape with the same HTML content
+						const currentPoint = this.editor.inputs.currentPagePoint
+						const newShape = this.editor.createShape<PreviewShape>({
+							type: 'response',
+							x: currentPoint.x + 20, // Offset slightly from current position
+							y: currentPoint.y + 20,
+							props: {
+								html: shape.props.html,
+								w: shape.props.w,
+								h: shape.props.h,
+							},
+						})
+
+						toast.addToast({
+							icon: 'duplicate',
+							title: 'Created duplicate shape',
+						})
 					}}
 					onPointerDown={stopEventPropagation}
 				>
