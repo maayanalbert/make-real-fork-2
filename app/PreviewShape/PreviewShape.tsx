@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/rules-of-hooks */
-import { ReactElement, useEffect, useState, useRef } from 'react'
+import { ReactElement, useEffect, useRef } from 'react'
 import {
 	TLBaseShape,
 	BaseBoxShapeUtil,
@@ -8,7 +8,6 @@ import {
 	useValue,
 	HTMLContainer,
 	toDomPrecision,
-	DefaultSpinner,
 	stopEventPropagation,
 	SvgExportContext,
 	Vec,
@@ -23,7 +22,6 @@ export type PreviewShape = TLBaseShape<
 		html: string
 		w: number
 		h: number
-		screenshot?: string // Store the screenshot data URL
 	}
 >
 
@@ -48,9 +46,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 		const toast = useToasts()
 		const editor = useEditor()
 		const { focusedPreviewId, setFocusedPreviewId } = useFocusPreview()
-		const [screenshot, setScreenshot] = useState<string | undefined>(shape.props.screenshot)
 		const iframeRef = useRef<HTMLIFrameElement>(null)
-		const wasFocused = useRef<boolean>(false)
 
 		// Check if this preview is focused
 		const isFocused = focusedPreviewId === shape.id
@@ -65,82 +61,14 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			[editor, shape.id]
 		)
 
-		// Handle screenshot messages from the iframe
-		useEffect(() => {
-			// Set up event listener for receiving screenshots
-			const handleScreenshotMessage = (event: MessageEvent) => {
-				if (event.data.screenshot && event.data?.shapeid === shape.id) {
-					try {
-						// Validate that the screenshot is a valid data URL string
-						if (
-							typeof event.data.screenshot === 'string' &&
-							event.data.screenshot.startsWith('data:image/')
-						) {
-							// Set the local state
-							setScreenshot(event.data.screenshot)
-
-							// Update the shape props with the screenshot data
-							// Ensure it's a string and not an object to avoid JSON serialization issues
-							editor.updateShape({
-								id: shape.id,
-								type: 'response',
-								props: {
-									...shape.props,
-									screenshot: event.data.screenshot,
-								},
-							})
-						} else {
-							console.error('Invalid screenshot format received')
-						}
-					} catch (error) {
-						console.error('Error processing screenshot:', error)
-					}
-				}
-			}
-
-			window.addEventListener('message', handleScreenshotMessage)
-			return () => {
-				window.removeEventListener('message', handleScreenshotMessage)
-			}
-		}, [editor, shape.id, shape.props])
-
 		// Handle selection changes with useEffect
 		useEffect(() => {
 			if (isSelected && shape.type === 'response') {
 				setFocusedPreviewId(shape.id)
-				wasFocused.current = true
 			} else if (focusedPreviewId === shape.id && !isSelected) {
-				// When losing focus, take a screenshot
-				if (wasFocused.current) {
-					wasFocused.current = false
-					requestScreenshot()
-				}
-
-				// If we want to clear focus only when no shapes are selected:
 				const selectedIds = editor.getSelectedShapeIds()
-				// if (selectedIds.length === 0) {
-				// 	setFocusedPreviewId(null)
-				// }
 			}
 		}, [isSelected, shape.id, shape.type, focusedPreviewId, setFocusedPreviewId, editor])
-
-		// Function to request a screenshot from the iframe
-		const requestScreenshot = () => {
-			const iframe = document.getElementById(`iframe-1-${shape.id}`) as HTMLIFrameElement
-			if (iframe && iframe.contentWindow) {
-				try {
-					iframe.contentWindow.postMessage(
-						{
-							action: 'take-screenshot',
-							shapeid: shape.id,
-						},
-						'*'
-					)
-				} catch (error) {
-					console.error('Error requesting screenshot:', error)
-				}
-			}
-		}
 
 		const boxShadow = useValue(
 			'box shadow',
@@ -153,45 +81,25 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 
 		return (
 			<HTMLContainer className="tl-embed-container" id={shape.id}>
-				{/* Show the iframe if focused, otherwise show static screenshot */}
-				{isFocused || !screenshot ? (
-					<iframe
-						ref={iframeRef}
-						id={`iframe-1-${shape.id}`}
-						src="/embedded"
-						width={toDomPrecision(shape.props.w)}
-						height={toDomPrecision(shape.props.h)}
-						draggable={false}
-						style={{
-							pointerEvents: isEditing ? 'auto' : 'none',
-							boxShadow,
-							border: isFocused
-								? '10px solid #3b82f6' // Prominent blue outline when focused
-								: '10px solid transparent',
-							borderRadius: 'var(--radius-2)',
-						}}
-					/>
-				) : (
-					<div
-						style={{
-							width: toDomPrecision(shape.props.w),
-							height: toDomPrecision(shape.props.h),
-							boxShadow,
-							border: isFocused
-								? '10px solid #3b82f6' // Prominent blue outline when focused
-								: '1px solid var(--color-panel-contrast)',
-							borderRadius: 'var(--radius-2)',
-							backgroundImage: `url(${screenshot})`,
-							backgroundSize: 'contain',
-							backgroundPosition: 'center',
-							backgroundRepeat: 'no-repeat',
-						}}
-						onClick={() => {
-							setFocusedPreviewId(shape.id)
-						}}
-					/>
-				)}
+				<iframe
+					ref={iframeRef}
+					id={`iframe-${shape.id}`}
+					src="http://localhost:3001"
+					width={toDomPrecision(shape.props.w)}
+					height={toDomPrecision(shape.props.h)}
+					draggable={false}
+					style={{
+						pointerEvents: isEditing ? 'auto' : 'none',
+						boxShadow,
+						border: isFocused
+							? '10px solid #3b82f6' // Prominent blue outline when focused
+							: '10px solid transparent',
+						borderRadius: 'var(--radius-2)',
+					}}
+					suppressHydrationWarning
+				/>
 
+				{/* Duplicate button */}
 				<div
 					style={{
 						position: 'absolute',
@@ -211,16 +119,12 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 						try {
 							const newShape = this.editor.createShape<PreviewShape>({
 								type: 'response',
-								x: currentPoint.x + 20, // Offset slightly from current position
+								x: currentPoint.x + 20,
 								y: currentPoint.y + 20,
 								props: {
 									html: shape.props.html,
 									w: shape.props.w,
 									h: shape.props.h,
-									// Only include screenshot if it's a valid string
-									...(typeof shape.props.screenshot === 'string' && {
-										screenshot: shape.props.screenshot,
-									}),
 								},
 							})
 
@@ -273,42 +177,16 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 	}
 
 	override toSvg(shape: PreviewShape, _ctx: SvgExportContext) {
-		// If we have a screenshot, use it directly
-		if (shape.props.screenshot && typeof shape.props.screenshot === 'string') {
-			return Promise.resolve(<PreviewImage href={shape.props.screenshot} shape={shape} />)
-		}
-
-		// Otherwise, get a new screenshot
-		return new Promise<ReactElement>((resolve, reject) => {
-			if (window === undefined) {
-				reject()
-				return
-			}
-
-			const windowListener = (event: MessageEvent) => {
-				if (event.data.screenshot && event.data?.shapeid === shape.id) {
-					window.removeEventListener('message', windowListener)
-					clearTimeout(timeOut)
-
-					resolve(<PreviewImage href={event.data.screenshot} shape={shape} />)
-				}
-			}
-			const timeOut = setTimeout(() => {
-				reject()
-				window.removeEventListener('message', windowListener)
-			}, 2000)
-			window.addEventListener('message', windowListener)
-			//request new screenshot
-			const firstLevelIframe = document.getElementById(`iframe-1-${shape.id}`) as HTMLIFrameElement
-			if (firstLevelIframe) {
-				firstLevelIframe.contentWindow?.postMessage(
-					{ action: 'take-screenshot', shapeid: shape.id },
-					'*'
-				)
-			} else {
-				console.error('first level iframe not found or not accessible')
-			}
-		})
+		// Use a placeholder for SVG export
+		return Promise.resolve(
+			<rect
+				width={shape.props.w.toString()}
+				height={shape.props.h.toString()}
+				fill="#f5f5f5"
+				rx="4"
+				ry="4"
+			/>
+		)
 	}
 
 	indicator(shape: PreviewShape) {
@@ -324,10 +202,6 @@ function getRotatedBoxShadow(rotation: number) {
 		return `${x}px ${y}px ${blur}px ${spread}px ${color}`
 	})
 	return cssStrings.join(', ')
-}
-
-function PreviewImage({ shape, href }: { shape: PreviewShape; href: string }) {
-	return <image href={href} width={shape.props.w.toString()} height={shape.props.h.toString()} />
 }
 
 const ROTATING_BOX_SHADOWS = [
