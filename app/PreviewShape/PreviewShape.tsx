@@ -1,5 +1,5 @@
 /* eslint-disable react-hooks/rules-of-hooks */
-import { ReactElement, useEffect, useRef } from 'react'
+import { ReactElement, useEffect, useRef, useState } from 'react'
 import {
 	TLBaseShape,
 	BaseBoxShapeUtil,
@@ -15,6 +15,7 @@ import {
 	useEditor,
 } from 'tldraw'
 import { useFocusPreview } from './FocusPreviewContext'
+import { useWorkingDirectory } from '../lib/WorkingDirectoryContext'
 
 export type PreviewShape = TLBaseShape<
 	'response',
@@ -22,6 +23,12 @@ export type PreviewShape = TLBaseShape<
 		html: string
 		w: number
 		h: number
+		fileData?: {
+			path?: string
+			content?: string
+			type?: string
+			name?: string
+		}
 	}
 >
 
@@ -33,6 +40,12 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			html: '',
 			w: (960 * 2) / 3,
 			h: 540,
+			fileData: {
+				path: '',
+				content: '',
+				type: '',
+				name: '',
+			},
 		}
 	}
 
@@ -46,7 +59,10 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 		const toast = useToasts()
 		const editor = useEditor()
 		const { focusedPreviewId, setFocusedPreviewId } = useFocusPreview()
+		const { workingDirectory } = useWorkingDirectory()
 		const iframeRef = useRef<HTMLIFrameElement>(null)
+		const [fileContent, setFileContent] = useState<string | null>(null)
+		const [saveInProgress, setSaveInProgress] = useState(false)
 
 		// Check if this preview is focused
 		const isFocused = focusedPreviewId === shape.id
@@ -66,9 +82,77 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			if (isSelected && shape.type === 'response') {
 				setFocusedPreviewId(shape.id)
 			} else if (focusedPreviewId === shape.id && !isSelected) {
-				const selectedIds = editor.getSelectedShapeIds()
+				// When shape loses focus, persist any file content that was loaded
+				saveFileContentToShape()
 			}
 		}, [isSelected, shape.id, shape.type, focusedPreviewId, setFocusedPreviewId, editor])
+
+		// Function to save file content to shape when it loses focus
+		const saveFileContentToShape = async () => {
+			if (saveInProgress) return
+
+			try {
+				setSaveInProgress(true)
+				const fileContentElement = document.getElementById(
+					`file-content-${shape.id}`
+				) as HTMLInputElement
+
+				if (fileContentElement && fileContentElement.value) {
+					// Store the file content in the shape props
+					const currentShape = editor.getShape(shape.id)
+					if (currentShape && currentShape.type === 'response') {
+						// Get file data from shape
+						const fileName =
+							document.querySelector(`#iframe-${shape.id} .file-preview h3`)?.textContent || ''
+						const fileType =
+							document.querySelector(`#iframe-${shape.id} .file-preview p strong`)?.nextSibling
+								?.textContent || ''
+
+						editor.updateShape({
+							id: shape.id,
+							type: 'response',
+							props: {
+								...currentShape.props,
+								fileData: {
+									content: fileContentElement.value,
+									name: fileName,
+									type: fileType,
+									path: workingDirectory ? `${workingDirectory}/${fileName}` : '',
+								},
+							},
+						})
+
+						toast.addToast({
+							icon: 'check',
+							title: 'File content saved to shape',
+						})
+					}
+				}
+			} catch (error) {
+				console.error('Error saving file content:', error)
+				toast.addToast({
+					icon: 'cross-2',
+					title: 'Failed to save file content',
+				})
+			} finally {
+				setSaveInProgress(false)
+			}
+		}
+
+		// Send messages to iframe when focus changes
+		useEffect(() => {
+			// Wait for iframe to be ready
+			if (!iframeRef.current || !iframeRef.current.contentWindow) return
+			console.log('focusing', shape.id, isFocused)
+			// Send message to iframe about focus state
+			iframeRef.current.contentWindow.postMessage(
+				{
+					type: isFocused ? 'RESUME_UPDATES' : 'PAUSE_UPDATES',
+					frameId: shape.id,
+				},
+				'*'
+			)
+		}, [isFocused, shape.id])
 
 		const boxShadow = useValue(
 			'box shadow',
@@ -78,6 +162,13 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			},
 			[this.editor]
 		)
+
+		// Check for stored file data on mount
+		useEffect(() => {
+			if (shape.props.fileData?.content && isFocused) {
+				setFileContent(shape.props.fileData.content)
+			}
+		}, [shape.props.fileData, isFocused])
 
 		return (
 			<HTMLContainer className="tl-embed-container" id={shape.id}>
@@ -97,6 +188,37 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 						borderRadius: 'var(--radius-2)',
 					}}
 					suppressHydrationWarning
+					onLoad={() => {
+						// Initialize focus state when iframe loads
+						if (iframeRef.current && iframeRef.current.contentWindow) {
+							iframeRef.current.contentWindow.postMessage(
+								{
+									type: isFocused ? 'RESUME_UPDATES' : 'PAUSE_UPDATES',
+									frameId: shape.id,
+								},
+								'*'
+							)
+
+							// If we have stored file data, restore it
+							if (shape.props.fileData?.content) {
+								const fileData = shape.props.fileData
+								// Set HTML content to display file data
+								editor.updateShape({
+									id: shape.id,
+									type: 'response',
+									props: {
+										...shape.props,
+										html: `<div class="file-preview">
+											<h3>${fileData.name || 'File'}</h3>
+											<p>File loaded. Content will be displayed here.</p>
+											<p><strong>File Type:</strong> ${fileData.type || 'Unknown'}</p>
+											<input type="hidden" id="file-content-${shape.id}" value="${fileData.content}" />
+										</div>`,
+									},
+								})
+							}
+						}
+					}}
 				/>
 
 				{/* Duplicate button */}
@@ -125,6 +247,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 									html: shape.props.html,
 									w: shape.props.w,
 									h: shape.props.h,
+									fileData: shape.props.fileData,
 								},
 							})
 
