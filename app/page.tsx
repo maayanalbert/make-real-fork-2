@@ -57,33 +57,11 @@ export default function App() {
 				<FocusPreviewProvider>
 					<Tldraw persistenceKey="make-real" hideUi shapeUtils={shapeUtils}>
 						<InitialPreviewShape />
+
+						<FileSelectionModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
 					</Tldraw>
-					<button className="file-selector-btn" onClick={() => setIsModalOpen(true)}>
-						Select Directory
-					</button>
-					<FileSelectionModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
 				</FocusPreviewProvider>
 			</div>
-			<style jsx>{`
-				.file-selector-btn {
-					position: fixed;
-					top: 16px;
-					left: 16px;
-					background-color: white;
-					border: 1px solid #d1d5db;
-					padding: 8px 16px;
-					border-radius: 6px;
-					cursor: pointer;
-					z-index: 100;
-					font-size: 14px;
-					box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-					transition: box-shadow 0.2s;
-				}
-
-				.file-selector-btn:hover {
-					box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-				}
-			`}</style>
 		</WorkingDirectoryProvider>
 	)
 }
