@@ -4,10 +4,10 @@ import dynamic from 'next/dynamic'
 import 'tldraw/tldraw.css'
 import { PreviewShapeUtil } from './PreviewShape/PreviewShape'
 import { FocusPreviewProvider } from './PreviewShape/FocusPreviewContext'
-import { WorkingDirectoryProvider } from './lib/WorkingDirectoryContext'
-import { FileSelectionModal } from './components/FileSelectionModal'
+import { ProjectSettingsModal } from './components/ProjectSettingsModal'
 import { useEffect, useState } from 'react'
 import { createShapeId, TLShapeId, Editor, useEditor } from 'tldraw'
+import { ProjectSettingsProvider } from './lib/ProjectSettingsContext'
 
 const Tldraw = dynamic(async () => (await import('tldraw')).Tldraw, {
 	ssr: false,
@@ -52,16 +52,16 @@ export default function App() {
 	const [isModalOpen, setIsModalOpen] = useState(false)
 
 	return (
-		<WorkingDirectoryProvider>
+		<ProjectSettingsProvider>
 			<div className="editor">
 				<FocusPreviewProvider>
 					<Tldraw persistenceKey="make-real" hideUi shapeUtils={shapeUtils}>
 						<InitialPreviewShape />
 
-						<FileSelectionModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
+						<ProjectSettingsModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
 					</Tldraw>
 				</FocusPreviewProvider>
 			</div>
-		</WorkingDirectoryProvider>
+		</ProjectSettingsProvider>
 	)
 }

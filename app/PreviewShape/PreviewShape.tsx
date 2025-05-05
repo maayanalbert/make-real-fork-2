@@ -15,7 +15,7 @@ import {
 	useEditor,
 } from 'tldraw'
 import { useFocusPreview } from './FocusPreviewContext'
-import { useWorkingDirectory } from '../lib/WorkingDirectoryContext'
+import { useProjectSettings } from '../lib/ProjectSettingsContext'
 
 export type PreviewShape = TLBaseShape<
 	'response',
@@ -59,7 +59,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 		const toast = useToasts()
 		const editor = useEditor()
 		const { focusedPreviewId, setFocusedPreviewId } = useFocusPreview()
-		const { workingDirectory } = useWorkingDirectory()
+		const { directoryHandle, port } = useProjectSettings()
 		const iframeRef = useRef<HTMLIFrameElement>(null)
 		const [fileContent, setFileContent] = useState<string | null>(null)
 		const [saveInProgress, setSaveInProgress] = useState(false)
@@ -117,7 +117,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 									content: fileContentElement.value,
 									name: fileName,
 									type: fileType,
-									path: workingDirectory ? `${workingDirectory}/${fileName}` : '',
+									path: directoryHandle ? `${directoryHandle.name}/${fileName}` : '',
 								},
 							},
 						})
@@ -143,7 +143,6 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 		useEffect(() => {
 			// Wait for iframe to be ready
 			if (!iframeRef.current || !iframeRef.current.contentWindow) return
-			console.log('focusing', shape.id, isFocused)
 			// Send message to iframe about focus state
 			iframeRef.current.contentWindow.postMessage(
 				{
@@ -175,7 +174,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 				<iframe
 					ref={iframeRef}
 					id={`iframe-${shape.id}`}
-					src="http://localhost:3001"
+					src={`http://localhost:${port || '3001'}`}
 					width={toDomPrecision(shape.props.w)}
 					height={toDomPrecision(shape.props.h)}
 					draggable={false}
