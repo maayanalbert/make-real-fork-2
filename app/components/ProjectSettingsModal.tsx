@@ -15,6 +15,8 @@ export function ProjectSettingsModal({
 	const [newPort, setNewPort] = useState(port)
 	const [internalIsOpen, setInternalIsOpen] = useState(false)
 	const [selectedHandle, setSelectedHandle] = useState<FileSystemDirectoryHandle | null>(null)
+	const [permissionError, setPermissionError] = useState<string | null>(null)
+	const [rejectedPath, setRejectedPath] = useState<string | null>(null)
 
 	const modalRef = useRef<HTMLDivElement>(null)
 
@@ -40,6 +42,17 @@ export function ProjectSettingsModal({
 		}
 	}, [directoryHandle])
 
+	// Check existing directory handle permission on mount and modal open
+	useEffect(() => {
+		const checkExistingPermission = async () => {
+			if (directoryHandle && isModalOpen) {
+				await verifyPermission(directoryHandle)
+			}
+		}
+
+		checkExistingPermission()
+	}, [directoryHandle, isModalOpen])
+
 	// Handle click outside of modal
 	useEffect(() => {
 		function handleClickOutside(event: MouseEvent) {
@@ -57,33 +70,86 @@ export function ProjectSettingsModal({
 		}
 	}, [isModalOpen, directoryHandle])
 
+	// Function to check permission for a directory handle
+	const verifyPermission = async (handle: FileSystemDirectoryHandle): Promise<boolean> => {
+		if (!handle.queryPermission || !handle.requestPermission) {
+			setPermissionError("Your browser doesn't support the required permissions API")
+			return false
+		}
+
+		try {
+			// First check current permission status
+			let permission = await handle.queryPermission({ mode: 'readwrite' })
+
+			// If we need to ask, request permission from user
+			if (permission === 'prompt') {
+				permission = await handle.requestPermission({ mode: 'readwrite' })
+			}
+
+			if (permission !== 'granted') {
+				setPermissionError('Permission denied. Please allow access to the selected folder.')
+				setRejectedPath(handle.name)
+				return false
+			}
+
+			setPermissionError(null)
+			setRejectedPath(null)
+			return true
+		} catch (error) {
+			setPermissionError('Error checking permissions. Please try again.')
+			return false
+		}
+	}
+
 	// Function to open the directory picker
 	const openDirectoryPicker = async () => {
 		try {
 			// @ts-ignore - showDirectoryPicker may not be recognized in TypeScript definitions
 			const dirHandle = await window.showDirectoryPicker()
-			setSelectedHandle(dirHandle)
+			// Check permission immediately after selection
+			const hasPermission = await verifyPermission(dirHandle)
+			if (hasPermission) {
+				setSelectedHandle(dirHandle)
+			}
 		} catch (error) {
 			// Error handling remains but without console.log
+			if ((error as Error).name === 'AbortError') {
+				// User cancelled the selection
+				return
+			}
+			setPermissionError('Error selecting directory. Please try again.')
 		}
 	}
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
 
-		// Only save if directory and port are set
-		if ((selectedHandle || directoryHandle) && newPort) {
-			// Use the new selected handle or keep the existing one
-			if (selectedHandle) {
-				await setDirectoryHandle(selectedHandle)
-			}
+		// Only save if directory and port are set and we have permissions
+		const handleToCheck = selectedHandle || directoryHandle
 
-			setPort(newPort)
-			setModalOpen(false)
+		if (handleToCheck && newPort) {
+			// Verify permission before proceeding
+			if (await verifyPermission(handleToCheck)) {
+				// Use the new selected handle or keep the existing one
+				if (selectedHandle) {
+					await setDirectoryHandle(selectedHandle)
+				}
+
+				setPort(newPort)
+				setModalOpen(false)
+			}
 		}
 	}
 
-	const canSubmit = !!(directoryHandle || selectedHandle) && !!newPort
+	// Function to retry permission request
+	const retryPermission = async () => {
+		const handleToCheck = selectedHandle || directoryHandle
+		if (handleToCheck) {
+			await verifyPermission(handleToCheck)
+		}
+	}
+
+	const canSubmit = !!(directoryHandle || selectedHandle) && !!newPort && !permissionError
 	const isDirectorySet = !!directoryHandle
 	const displayPath = selectedHandle?.name || directoryHandle?.name || ''
 
@@ -135,7 +201,7 @@ export function ProjectSettingsModal({
 									</button>
 								</div>
 
-								{displayPath && (
+								{displayPath && !permissionError && (
 									<motion.div
 										className="mb-6 p-3 bg-gray-100 rounded-md text-sm text-gray-800 break-all"
 										initial={{ opacity: 0, y: -10 }}
@@ -143,6 +209,30 @@ export function ProjectSettingsModal({
 										transition={{ duration: 0.2 }}
 									>
 										Selected: {displayPath}
+									</motion.div>
+								)}
+
+								{permissionError && rejectedPath && (
+									<motion.div
+										className="mb-6 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600"
+										initial={{ opacity: 0, y: -10 }}
+										animate={{ opacity: 1, y: 0 }}
+										transition={{ duration: 0.2 }}
+									>
+										<div className="text-xs">
+											Please click &quot;Browse Folders&quot; again and allow access to the folder.
+										</div>
+									</motion.div>
+								)}
+
+								{permissionError && !rejectedPath && (
+									<motion.div
+										className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600"
+										initial={{ opacity: 0, y: -10 }}
+										animate={{ opacity: 1, y: 0 }}
+										transition={{ duration: 0.2 }}
+									>
+										{permissionError}
 									</motion.div>
 								)}
 

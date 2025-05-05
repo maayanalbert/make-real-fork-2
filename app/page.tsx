@@ -7,7 +7,7 @@ import { FocusPreviewProvider } from './PreviewShape/FocusPreviewContext'
 import { ProjectSettingsModal } from './components/ProjectSettingsModal'
 import { useEffect, useState } from 'react'
 import { createShapeId, TLShapeId, Editor, useEditor } from 'tldraw'
-import { ProjectSettingsProvider } from './lib/ProjectSettingsContext'
+import { ProjectSettingsProvider, useProjectSettings } from './lib/ProjectSettingsContext'
 
 const Tldraw = dynamic(async () => (await import('tldraw')).Tldraw, {
 	ssr: false,
@@ -18,9 +18,10 @@ const shapeUtils = [PreviewShapeUtil]
 // Component to add initial preview shape
 function InitialPreviewShape() {
 	const editor = useEditor()
+	const { directoryHandle } = useProjectSettings()
 
 	useEffect(() => {
-		if (!editor) return
+		if (!editor || !directoryHandle) return
 
 		// Wait for the editor to be ready
 		setTimeout(() => {
@@ -43,7 +44,7 @@ function InitialPreviewShape() {
 				})
 			}
 		}, 1000)
-	}, [editor])
+	}, [editor, directoryHandle])
 
 	return null
 }
