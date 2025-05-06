@@ -146,68 +146,65 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 
 		return (
 			<HTMLContainer className="tl-embed-container" id={shape.id}>
-				<iframe
-					ref={iframeRef}
-					id={`iframe-${shape.id}`}
-					src={`http://localhost:${port || '3001'}?shapeId=${shape.id}`}
-					width={toDomPrecision(shape.props.w)}
-					height={toDomPrecision(shape.props.h)}
-					draggable={false}
-					style={{
-						pointerEvents: isEditing ? 'auto' : 'none',
-						boxShadow,
-						border: isFocused
-							? '10px solid #3b82f6' // Prominent blue outline when focused
-							: '10px solid transparent',
-						borderRadius: 'var(--radius-2)',
-						position: 'relative',
-						zIndex: isFocused ? 1 : 0,
-					}}
-					suppressHydrationWarning
-					onLoad={() => {
-						// Initialize focus state when iframe loads
-						if (iframeRef.current && iframeRef.current.contentWindow) {
-							// If we have stored file data, restore it
-							if (shape.props.fileData?.content) {
-								const fileData = shape.props.fileData
-								// Set HTML content to display file data
-								editor.updateShape({
-									id: shape.id,
-									type: 'response',
-									props: {
-										...shape.props,
-										html: `<div class="file-preview">
+				<div className="shadow-2xl">
+					{isFocused && (
+						<iframe
+							ref={iframeRef}
+							id={`iframe-${shape.id}`}
+							src={`http://localhost:${port || '3001'}?shapeId=${shape.id}`}
+							width={toDomPrecision(shape.props.w)}
+							height={toDomPrecision(shape.props.h)}
+							draggable={false}
+							style={{
+								pointerEvents: isEditing ? 'auto' : 'none',
+								position: 'relative',
+							}}
+							className="rounded-xl border-[10px] border-blue-500"
+							suppressHydrationWarning
+							onLoad={() => {
+								// Initialize focus state when iframe loads
+								if (iframeRef.current && iframeRef.current.contentWindow) {
+									// If we have stored file data, restore it
+									if (shape.props.fileData?.content) {
+										const fileData = shape.props.fileData
+										// Set HTML content to display file data
+										editor.updateShape({
+											id: shape.id,
+											type: 'response',
+											props: {
+												...shape.props,
+												html: `<div class="file-preview">
 											<h3>${fileData.name || 'File'}</h3>
 											<p>File loaded. Content will be displayed here.</p>
 											<p><strong>File Type:</strong> ${fileData.type || 'Unknown'}</p>
 											<input type="hidden" id="file-content-${shape.id}" value="${fileData.content}" />
 										</div>`,
-									},
-								})
-							}
-						}
-					}}
-				/>
+											},
+										})
+									}
+								}
+							}}
+						/>
+					)}
 
-				{/* Screenshot overlay */}
-				{!isFocused && shape.props.screenshot && (
-					<div
-						style={{
-							position: 'absolute',
-							top: 0,
-							left: 0,
-							width: toDomPrecision(shape.props.w),
-							height: toDomPrecision(shape.props.h),
-							backgroundImage: `url(${shape.props.screenshot})`,
-							backgroundSize: 'cover',
-							backgroundPosition: 'center',
-							borderRadius: 'var(--radius-2)',
-							zIndex: 2,
-							pointerEvents: 'none',
-						}}
-					/>
-				)}
-
+					{!isFocused && shape.props.screenshot && (
+						<div
+							className="rounded-xl shadow-2xl  border-white"
+							style={{
+								position: 'absolute',
+								top: 0,
+								left: 0,
+								width: toDomPrecision(shape.props.w),
+								height: toDomPrecision(shape.props.h),
+								backgroundImage: `url(${shape.props.screenshot})`,
+								backgroundSize: 'cover',
+								backgroundPosition: 'center',
+								zIndex: 2,
+								pointerEvents: 'none',
+							}}
+						/>
+					)}
+				</div>
 				{/* Duplicate button */}
 				<div
 					style={{
