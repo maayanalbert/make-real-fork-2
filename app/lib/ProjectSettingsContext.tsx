@@ -46,7 +46,6 @@ type ProjectSettingsContextType = {
 		branch?: string,
 		directoryHandle?: FileSystemDirectoryHandle
 	) => Promise<void>
-	createBranch: (branchName: string, fromBranch?: string) => Promise<void>
 	switchBranch: (branchName: string) => Promise<void>
 	commitChanges: (
 		message: string,
@@ -349,11 +348,9 @@ const parseGitignore = (content: string): string[] => {
 
 // Check if a path should be ignored based on gitignore patterns
 const shouldIgnore = (path: string, patterns: string[]): boolean => {
-	console.log('Checking path against patterns:', path, patterns)
-
-	// Always ignore node_modules
-	if (path.includes('node_modules') || path === 'node_modules') {
-		console.log('Ignoring node_modules:', path)
+	// Always ignore node_modules and .env files
+	if (path.includes('node_modules') || path === 'node_modules' || path.startsWith('.env')) {
+		console.log('Ignoring node_modules or .env:', path)
 		return true
 	}
 
@@ -472,6 +469,22 @@ const verifyGitRepo = async (repoUrl: string): Promise<boolean> => {
 		console.error('[Git] Error verifying repository:', error)
 		return false
 	}
+}
+
+// Helper to recursively create directories and get file handle
+async function getOrCreateFileHandleRecursive(
+	rootHandle: FileSystemDirectoryHandle,
+	filePath: string
+): Promise<FileSystemFileHandle> {
+	const parts = filePath.split('/')
+	let dirHandle = rootHandle
+	for (let i = 0; i < parts.length - 1; i++) {
+		if (!dirHandle.getDirectoryHandle)
+			throw new Error('Directory handle does not support getDirectoryHandle')
+		dirHandle = await dirHandle.getDirectoryHandle(parts[i], { create: true })
+	}
+	if (!dirHandle.getFileHandle) throw new Error('Directory handle does not support getFileHandle')
+	return await dirHandle.getFileHandle(parts[parts.length - 1], { create: true })
 }
 
 export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
@@ -594,7 +607,7 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 	// Initialize a Git repository by mirroring from a remote URL
 	const initializeGitRepo = async (
 		repoUrl: string,
-		branch: string = 'main',
+		branch?: string,
 		directoryHandle?: FileSystemDirectoryHandle
 	) => {
 		console.log(`[Git] Initializing Git repository from ${repoUrl}, branch ${branch}`)
@@ -603,8 +616,8 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 			// Create new repo info object
 			const newRepoInfo: GitRepoInfo = {
 				repoUrl,
-				currentBranch: branch,
-				branches: [branch],
+				currentBranch: branch || 'main',
+				branches: [branch || 'main'],
 				lastCommitDate: null,
 				isInitialized: false,
 			}
@@ -654,7 +667,7 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 				},
 				body: JSON.stringify({
 					repoUrl,
-					branch,
+					branch: branch || 'main',
 					files,
 				}),
 			})
@@ -682,85 +695,111 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 		}
 	}
 
-	// Create a new branch
-	const createBranch = async (branchName: string, fromBranch?: string) => {
-		console.log(
-			`[Git] Creating new branch: ${branchName} from ${fromBranch || gitRepo?.currentBranch}`
-		)
-
-		if (!gitRepo?.isInitialized) {
-			throw new Error('No Git repository has been initialized')
-		}
-
-		try {
-			const sourceBranch = fromBranch || gitRepo.currentBranch
-
-			// Validate branch name
-			if (!branchName || !/^[a-zA-Z0-9_\-./]+$/.test(branchName)) {
-				throw new Error('Invalid branch name')
-			}
-
-			// Check if branch already exists
-			if (gitRepo.branches.includes(branchName)) {
-				throw new Error(`Branch '${branchName}' already exists`)
-			}
-
-			// Get the source branch reference
-			const sourceRefHash = `refs/heads/${sourceBranch}`
-			const db = await openDB()
-			const transaction = db.transaction(GIT_OBJECTS_STORE, 'readonly')
-			const store = transaction.objectStore(GIT_OBJECTS_STORE)
-
-			const request = store.get(sourceRefHash)
-			const sourceRef = await new Promise<any>((resolve, reject) => {
-				request.onsuccess = () => resolve(request.result)
-				request.onerror = () => reject(request.error)
-			})
-
-			db.close()
-
-			if (!sourceRef) {
-				throw new Error(`Source branch '${sourceBranch}' not found`)
-			}
-
-			// Create new branch reference pointing to the same commit
-			const newRefHash = `refs/heads/${branchName}`
-			await storeGitObject(newRefHash, 'ref', new TextEncoder().encode(sourceRef.target))
-
-			// Update repository info
-			const updatedRepoInfo = {
-				...gitRepo,
-				branches: [...gitRepo.branches, branchName],
-			}
-
-			await storeGitRepoInfo(updatedRepoInfo)
-			setGitRepo(updatedRepoInfo)
-
-			console.log(`[Git] Branch '${branchName}' created successfully`)
-		} catch (error) {
-			console.error(`[Git] Failed to create branch '${branchName}':`, error)
-			throw error
-		}
-	}
-
 	// Switch to another branch
 	const switchBranch = async (branchName: string) => {
 		console.log(`[Git] Switching to branch: ${branchName}`)
 
-		if (!gitRepo?.isInitialized) {
+		if (!gitRepo?.isInitialized || !gitRepo.repoUrl) {
 			throw new Error('No Git repository has been initialized')
 		}
 
+		if (!directoryHandle) {
+			throw new Error('No directory selected')
+		}
+
 		try {
-			// Check if branch exists
-			if (!gitRepo.branches.includes(branchName)) {
-				throw new Error(`Branch '${branchName}' does not exist`)
+			console.log('[Git] Calling switch-branch API')
+			// Call the switch-branch API endpoint
+			const response = await fetch('http://localhost:3000/api/git/switch-branch', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					repoUrl: gitRepo.repoUrl,
+					branchName,
+					fromBranch: gitRepo.currentBranch,
+				}),
+			})
+
+			if (!response.ok) {
+				const error = await response.json()
+				throw new Error(error.error || 'Failed to switch branch')
 			}
 
-			// Update repository info
+			const result = await response.json()
+
+			// Store the branch reference in IndexedDB
+			const refHash = `refs/heads/${branchName}`
+			await storeGitObject(refHash, 'ref', new TextEncoder().encode(result.commitSha))
+
+			// Only clear and recreate files if the API indicates this is an existing branch
+			// The API will return files for existing branches, but not for new ones
+			if (result.files && result.files.length > 0) {
+				// Get .gitignore patterns
+				let ignorePatterns: string[] = []
+				try {
+					if (directoryHandle.getFileHandle) {
+						const gitignoreHandle = await directoryHandle.getFileHandle('.gitignore')
+						const gitignoreFile = await gitignoreHandle.getFile()
+						const gitignoreContent = await gitignoreFile.text()
+						ignorePatterns = parseGitignore(gitignoreContent)
+						console.log(`[Git] Found .gitignore with ${ignorePatterns.length} patterns`)
+					}
+				} catch (error) {
+					console.log(`[Git] No .gitignore found, will process all files`)
+				}
+
+				// Clear existing files in the directory, respecting .gitignore
+				if (directoryHandle.values) {
+					for await (const entry of directoryHandle.values()) {
+						const entryPath = entry.name
+
+						// Skip if this path should be ignored
+						if (shouldIgnore(entryPath, ignorePatterns)) {
+							console.log(`[Git] Skipping ignored path: ${entryPath}`)
+							continue
+						}
+
+						if (entry.kind === 'file') {
+							try {
+								// @ts-ignore - removeEntry exists in the API but not in types
+								await directoryHandle.removeEntry(entry.name)
+							} catch (error) {
+								console.error(`[Git] Error removing file ${entry.name}:`, error)
+							}
+						} else if (entry.kind === 'directory') {
+							try {
+								// @ts-ignore - removeEntry exists in the API but not in types
+								await directoryHandle.removeEntry(entry.name, { recursive: true })
+							} catch (error) {
+								console.error(`[Git] Error removing directory ${entry.name}:`, error)
+							}
+						}
+					}
+				}
+
+				// Create new files from the response
+				for (const file of result.files) {
+					try {
+						const fileHandle = await getOrCreateFileHandleRecursive(directoryHandle, file.path)
+						// @ts-ignore - createWritable exists in the API but not in types
+						const writable = await fileHandle.createWritable()
+						await writable.write(file.content)
+						await writable.close()
+					} catch (error) {
+						console.error(`[Git] Error creating file ${file.path}:`, error)
+					}
+				}
+			}
+
+			// Update repository info with new branch
 			const updatedRepoInfo = {
 				...gitRepo,
 				currentBranch: branchName,
+				branches: gitRepo.branches.includes(branchName)
+					? gitRepo.branches
+					: [...gitRepo.branches, branchName],
 			}
 
 			await storeGitRepoInfo(updatedRepoInfo)
@@ -921,7 +960,7 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 	const commitLocalDirectory = async (message: string): Promise<string | null> => {
 		console.log(`[Git] Committing local directory to branch: ${gitRepo?.currentBranch}`)
 
-		if (!gitRepo?.isInitialized) {
+		if (!gitRepo?.isInitialized || !gitRepo.repoUrl) {
 			throw new Error('No Git repository has been initialized')
 		}
 
@@ -967,301 +1006,44 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 				throw new Error('No files found to commit')
 			}
 
-			// Get current branch reference
-			const currentRefHash = `refs/heads/${gitRepo.currentBranch}`
-			console.log('[commitLocalDirectory] currentRefHash:', currentRefHash)
-			const db = await openDB()
-			let transaction = db.transaction(GIT_OBJECTS_STORE, 'readonly')
-			let store = transaction.objectStore(GIT_OBJECTS_STORE)
+			// Convert files to the format expected by the push API
+			const fileContents = files.map((file) => ({
+				path: file.path,
+				content: new TextDecoder().decode(file.content),
+			}))
 
-			// Debug the object store and current reference hash
-			console.log(`[commitLocalDirectory] Looking for ref: ${currentRefHash} in object store`)
-
-			// Check if the reference exists first
-			const checkRequest = store.count(currentRefHash)
-			const count = await new Promise<number>((resolve, reject) => {
-				checkRequest.onsuccess = () => resolve(checkRequest.result)
-				checkRequest.onerror = () => {
-					console.error('[commitLocalDirectory] Count error:', checkRequest.error)
-					reject(checkRequest.error)
-				}
+			// Call the push API endpoint
+			const response = await fetch('http://localhost:3000/api/git/push', {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					repoUrl: gitRepo.repoUrl,
+					branch: gitRepo.currentBranch,
+					commits: [{ message }],
+					files: fileContents,
+				}),
 			})
 
-			console.log(`[commitLocalDirectory] Found ${count} matching references`)
-
-			// If the reference doesn't exist, create an initial commit first
-			if (count === 0) {
-				console.log(`[Git] Reference not found, creating initial commit`)
-				db.close()
-
-				// Create initial tree
-				const initialTreeData = { tree: [] }
-				const initialTreeContent = JSON.stringify(initialTreeData)
-				const initialTreeHash = await generateHash(
-					`tree ${initialTreeContent.length}\0${initialTreeContent}`
-				)
-				await storeGitObject(initialTreeHash, 'tree', new TextEncoder().encode(initialTreeContent))
-
-				// Create initial commit
-				const author = {
-					name: 'Local User',
-					email: 'user@localhost',
-					date: new Date().toISOString(),
-				}
-
-				const initialCommitObject = {
-					message: 'Initial commit',
-					tree: initialTreeHash,
-					parents: [],
-					author,
-					committer: author,
-				}
-
-				const initialCommitContent = JSON.stringify(initialCommitObject)
-				const initialCommitHash = await generateHash(
-					`commit ${initialCommitContent.length}\0${initialCommitContent}`
-				)
-
-				await storeGitObject(
-					initialCommitHash,
-					'commit',
-					new TextEncoder().encode(initialCommitContent)
-				)
-
-				// Create branch reference
-				await storeGitObject(currentRefHash, 'ref', new TextEncoder().encode(initialCommitHash))
-
-				// Now continue with the actual file commit
-				transaction = (await openDB()).transaction(GIT_OBJECTS_STORE, 'readonly')
-				store = transaction.objectStore(GIT_OBJECTS_STORE)
-
-				console.log('[commitLocalDirectory] After initial commit, looking for ref:', currentRefHash)
-				const refRequest = store.get(currentRefHash)
-				const currentRef = await new Promise<any>((resolve, reject) => {
-					refRequest.onsuccess = () => resolve(refRequest.result)
-					refRequest.onerror = () => reject(refRequest.error)
-				})
-				console.log('[commitLocalDirectory] currentRef after initial commit:', currentRef)
-				if (!currentRef) {
-					db.close()
-					throw new Error(
-						`[commitLocalDirectory] Current branch reference not found even after creation`
-					)
-				}
-
-				// Create an empty tree for the initial commit
-				const initialTree = {
-					hash: initialTreeHash,
-					type: 'tree',
-					data: Array.from(new TextEncoder().encode(initialTreeContent)),
-					tree: [],
-				}
-
-				// Create new tree with files
-				const newBlobs = await Promise.all(
-					files.map(async (file) => {
-						const hash = await generateHash(
-							`blob ${file.content.byteLength}\0${new TextDecoder().decode(file.content)}`
-						)
-						await storeGitObject(hash, 'blob', file.content)
-
-						return {
-							path: file.path,
-							hash,
-							mode: '100644', // Regular file
-						}
-					})
-				)
-
-				// Create tree entries for all files
-				const newTreeEntries = newBlobs.map((blob) => ({
-					path: blob.path,
-					mode: blob.mode,
-					type: 'blob',
-					sha: blob.hash,
-				}))
-
-				// Create new tree object
-				const newTreeContent = JSON.stringify({ tree: newTreeEntries })
-				const newTreeHash = await generateHash(`tree ${newTreeContent.length}\0${newTreeContent}`)
-				await storeGitObject(newTreeHash, 'tree', new TextEncoder().encode(newTreeContent))
-
-				// Create new commit object
-				const commitObject = {
-					message,
-					tree: newTreeHash,
-					parents: [initialCommitHash],
-					author,
-					committer: author,
-				}
-
-				const commitContent = JSON.stringify(commitObject)
-				const commitHash = await generateHash(`commit ${commitContent.length}\0${commitContent}`)
-
-				await storeGitObject(commitHash, 'commit', new TextEncoder().encode(commitContent))
-
-				// Update branch reference
-				await storeGitObject(currentRefHash, 'ref', new TextEncoder().encode(commitHash))
-
-				// Update repository info
-				const updatedRepoInfo = {
-					...gitRepo,
-					lastCommitDate: new Date(),
-				}
-
-				await storeGitRepoInfo(updatedRepoInfo)
-				setGitRepo(updatedRepoInfo)
-
-				console.log(`[Git] Committed local directory successfully with initial commit`)
-				return commitHash
+			if (!response.ok) {
+				const error = await response.json()
+				throw new Error(error.error || 'Failed to push changes')
 			}
 
-			const refRequest = store.get(currentRefHash)
-			if (!currentRefHash) {
-				throw new Error(
-					'[commitLocalDirectory] currentRefHash is undefined or null before store.get'
-				)
-			}
-			const currentRef = await new Promise<any>((resolve, reject) => {
-				refRequest.onsuccess = () => resolve(refRequest.result)
-				refRequest.onerror = () => reject(refRequest.error)
-			})
-			console.log('[commitLocalDirectory] currentRef:', currentRef)
-			if (!currentRef) {
-				db.close()
-				throw new Error(`[commitLocalDirectory] Current branch reference not found`)
-			}
+			const result = await response.json()
+			console.log(`[Git] Successfully pushed changes to remote repository`)
 
-			let refTarget = currentRef.target
-			if (!refTarget && currentRef.data) {
-				refTarget = new TextDecoder().decode(currentRef.data)
-			}
-
-			// Get current commit
-			const commitRequest = store.get(refTarget)
-			console.log('[commitLocalDirectory] Getting commit for target:', refTarget)
-			const currentCommit = await new Promise<any>((resolve, reject) => {
-				commitRequest.onsuccess = () => resolve(commitRequest.result)
-				commitRequest.onerror = () => reject(commitRequest.error)
-			})
-			console.log('[commitLocalDirectory] currentCommit:', currentCommit)
-			if (!currentCommit) {
-				db.close()
-				throw new Error(`[commitLocalDirectory] Current commit not found`)
-			}
-
-			// Decode commit data to get the actual commit object
-			let commitData = currentCommit
-			if (currentCommit.data) {
-				const decoded = new TextDecoder().decode(currentCommit.data)
-				try {
-					commitData = JSON.parse(decoded)
-				} catch (e) {
-					db.close()
-					throw new Error(`[commitLocalDirectory] Failed to parse commit data: ${e}`)
-				}
-			}
-
-			if (!commitData.tree) {
-				db.close()
-				throw new Error(`[commitLocalDirectory] Commit object does not have a tree property`)
-			}
-
-			// Get current tree
-			const treeRequest = store.get(commitData.tree)
-			console.log('[commitLocalDirectory] Getting tree for:', commitData.tree)
-			const currentTree = await new Promise<any>((resolve, reject) => {
-				treeRequest.onsuccess = () => resolve(treeRequest.result)
-				treeRequest.onerror = () => reject(treeRequest.error)
-			})
-			console.log('[commitLocalDirectory] currentTree:', currentTree)
-			db.close()
-			if (!currentTree) {
-				throw new Error(`[commitLocalDirectory] Current tree not found`)
-			}
-
-			const treeData = JSON.parse(new TextDecoder().decode(new Uint8Array(currentTree.data)))
-
-			// Create blobs for all files
-			const newBlobs = await Promise.all(
-				files.map(async (file) => {
-					const hash = await generateHash(
-						`blob ${file.content.byteLength}\0${new TextDecoder().decode(file.content)}`
-					)
-					await storeGitObject(hash, 'blob', file.content)
-
-					return {
-						path: file.path,
-						hash,
-						mode: '100644', // Regular file
-					}
-				})
-			)
-
-			// Create new tree with updated files
-			const newTreeEntries = [...treeData.tree]
-
-			for (const blob of newBlobs) {
-				const existingIndex = newTreeEntries.findIndex((entry: any) => entry.path === blob.path)
-
-				if (existingIndex >= 0) {
-					// Update existing file
-					newTreeEntries[existingIndex] = {
-						...newTreeEntries[existingIndex],
-						sha: blob.hash,
-					}
-				} else {
-					// Add new file
-					newTreeEntries.push({
-						path: blob.path,
-						mode: blob.mode,
-						type: 'blob',
-						sha: blob.hash,
-					})
-				}
-			}
-
-			// Create new tree object
-			const newTreeContent = JSON.stringify({ tree: newTreeEntries })
-			const newTreeHash = await generateHash(`tree ${newTreeContent.length}\0${newTreeContent}`)
-			await storeGitObject(newTreeHash, 'tree', new TextEncoder().encode(newTreeContent))
-
-			// Create new commit object
-			const author = {
-				name: 'Local User',
-				email: 'user@localhost',
-				date: new Date().toISOString(),
-			}
-
-			const commitObject = {
-				message,
-				tree: newTreeHash,
-				parents: [refTarget],
-				author,
-				committer: author,
-			}
-
-			const commitContent = JSON.stringify(commitObject)
-			const commitHash = await generateHash(`commit ${commitContent.length}\0${commitContent}`)
-
-			await storeGitObject(commitHash, 'commit', new TextEncoder().encode(commitContent))
-
-			// Update branch reference
-			await storeGitObject(currentRefHash, 'ref', new TextEncoder().encode(commitHash))
-
-			// Update repository info
+			// Update repository info with new commit date
 			const updatedRepoInfo = {
 				...gitRepo,
 				lastCommitDate: new Date(),
 			}
-
-			await storeGitRepoInfo(updatedRepoInfo)
 			setGitRepo(updatedRepoInfo)
 
-			console.log(`[Git] Committed local directory successfully`)
-			return commitHash
+			return result.commitSha
 		} catch (error) {
-			console.error(`[Git] Failed to commit local directory:`, error)
+			console.error(`[Git] Failed to push changes:`, error)
 			throw error
 		}
 	}
@@ -1273,7 +1055,6 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 		setDirectoryHandle,
 		setPort,
 		initializeGitRepo,
-		createBranch,
 		switchBranch,
 		commitChanges,
 		commitLocalDirectory,

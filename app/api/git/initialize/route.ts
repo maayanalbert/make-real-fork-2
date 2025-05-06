@@ -84,8 +84,18 @@ export async function POST(request: Request) {
 			)
 		}
 
+		// Filter out .env files
+		const filteredFiles = nonEmptyFiles.filter((file: FileEntry) => !file.path.startsWith('.env'))
+		if (filteredFiles.length === 0) {
+			console.error('[INIT] No valid files after filtering .env files')
+			return NextResponse.json(
+				{ error: 'No valid files to create initial commit after filtering .env files' },
+				{ status: 400 }
+			)
+		}
+
 		const results = []
-		for (const file of nonEmptyFiles) {
+		for (const file of filteredFiles) {
 			console.log(`[INIT] Creating file via Contents API: ${file.path}`)
 			console.log('[INIT] Params:', {
 				owner,

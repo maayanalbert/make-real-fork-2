@@ -30,6 +30,17 @@ export async function POST(request: Request) {
 			return NextResponse.json({ error: 'Files to push are required' }, { status: 400 })
 		}
 
+		// Filter out .env files
+		const filteredFiles = files.filter(
+			(file: { path: string; content: string }) => !file.path.startsWith('.env')
+		)
+		if (filteredFiles.length === 0) {
+			return NextResponse.json(
+				{ error: 'No valid files to push after filtering .env files' },
+				{ status: 400 }
+			)
+		}
+
 		// Parse the GitHub repository information from URL
 		const repoRegex = /github\.com\/([^\/]+)\/([^\/]+)/i
 		const match = repoUrl.match(repoRegex)
@@ -198,7 +209,7 @@ export async function POST(request: Request) {
 		const baseTreeSha = commitData.tree.sha
 
 		// Create blobs for each file
-		const blobPromises = files.map(async (file: { path: string; content: string }) => {
+		const blobPromises = filteredFiles.map(async (file: { path: string; content: string }) => {
 			const createBlobResponse = await fetch(
 				`https://api.github.com/repos/${owner}/${repoName}/git/blobs`,
 				{

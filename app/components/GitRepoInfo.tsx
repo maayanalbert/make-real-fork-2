@@ -6,7 +6,6 @@ export default function GitRepoInfo() {
 	const {
 		gitRepo,
 		initializeGitRepo,
-		createBranch,
 		switchBranch,
 		commitChanges,
 		commitLocalDirectory,
@@ -72,7 +71,7 @@ export default function GitRepoInfo() {
 		if (!newBranchName.trim()) return
 
 		try {
-			await createBranch(newBranchName.trim())
+			await switchBranch(newBranchName.trim())
 			setNewBranchName('')
 		} catch (err) {
 			console.error('Failed to create branch:', err)
