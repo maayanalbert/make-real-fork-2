@@ -20,9 +20,9 @@ import { useProjectSettings } from '../lib/ProjectSettingsContext'
 export type PreviewShape = TLBaseShape<
 	'response',
 	{
-		html: string
 		w: number
 		h: number
+		screenshot?: string
 		fileData?: {
 			path?: string
 			content?: string
@@ -37,9 +37,9 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 
 	getDefaultProps(): PreviewShape['props'] {
 		return {
-			html: '',
 			w: (960 * 2) / 3,
 			h: 540,
+			screenshot: undefined,
 			fileData: {
 				path: '',
 				content: '',
@@ -82,76 +82,51 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			if (isSelected && shape.type === 'response') {
 				setFocusedPreviewId(shape.id)
 			} else if (focusedPreviewId === shape.id && !isSelected) {
-				// When shape loses focus, persist any file content that was loaded
-				saveFileContentToShape()
+				// When shape loses focus, take a screenshot and save file content
+				takeScreenshot()
 			}
 		}, [isSelected, shape.id, shape.type, focusedPreviewId, setFocusedPreviewId, editor])
 
-		// Function to save file content to shape when it loses focus
-		const saveFileContentToShape = async () => {
-			if (saveInProgress) return
+		// Function to take a screenshot of the iframe
+		const takeScreenshot = async () => {
+			if (!iframeRef.current) return
 
 			try {
-				setSaveInProgress(true)
-				const fileContentElement = document.getElementById(
-					`file-content-${shape.id}`
-				) as HTMLInputElement
+				// Request screenshot from iframe using the shape ID
+				iframeRef.current.contentWindow?.postMessage(
+					{
+						type: 'TAKE_SCREENSHOT',
+						shapeId: shape.id,
+					},
+					'*'
+				)
 
-				if (fileContentElement && fileContentElement.value) {
-					// Store the file content in the shape props
-					const currentShape = editor.getShape(shape.id)
-					if (currentShape && currentShape.type === 'response') {
-						// Get file data from shape
-						const fileName =
-							document.querySelector(`#iframe-${shape.id} .file-preview h3`)?.textContent || ''
-						const fileType =
-							document.querySelector(`#iframe-${shape.id} .file-preview p strong`)?.nextSibling
-								?.textContent || ''
-
+				// Listen for the screenshot response
+				const handleScreenshot = (event: MessageEvent) => {
+					if (event.data.type === 'SCREENSHOT_RESULT' && event.data.shapeId === shape.id) {
+						// Update shape with screenshot
 						editor.updateShape({
 							id: shape.id,
 							type: 'response',
 							props: {
-								...currentShape.props,
-								fileData: {
-									content: fileContentElement.value,
-									name: fileName,
-									type: fileType,
-									path: directoryHandle ? `${directoryHandle.name}/${fileName}` : '',
-								},
+								...shape.props,
+								screenshot: event.data.screenshot,
 							},
 						})
-
-						toast.addToast({
-							icon: 'check',
-							title: 'File content saved to shape',
-						})
+						// Remove the event listener
+						window.removeEventListener('message', handleScreenshot)
 					}
 				}
+
+				window.addEventListener('message', handleScreenshot)
 			} catch (error) {
-				console.error('Error saving file content:', error)
+				console.error('Error taking screenshot:', error)
 				toast.addToast({
 					icon: 'cross-2',
-					title: 'Failed to save file content',
+					title: 'Failed to take screenshot',
 				})
-			} finally {
-				setSaveInProgress(false)
 			}
 		}
-
-		// Send messages to iframe when focus changes
-		useEffect(() => {
-			// Wait for iframe to be ready
-			if (!iframeRef.current || !iframeRef.current.contentWindow) return
-			// Send message to iframe about focus state
-			iframeRef.current.contentWindow.postMessage(
-				{
-					type: isFocused ? 'RESUME_UPDATES' : 'PAUSE_UPDATES',
-					frameId: shape.id,
-				},
-				'*'
-			)
-		}, [isFocused, shape.id])
 
 		const boxShadow = useValue(
 			'box shadow',
@@ -174,7 +149,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 				<iframe
 					ref={iframeRef}
 					id={`iframe-${shape.id}`}
-					src={`http://localhost:${port || '3001'}`}
+					src={`http://localhost:${port || '3001'}?shapeId=${shape.id}`}
 					width={toDomPrecision(shape.props.w)}
 					height={toDomPrecision(shape.props.h)}
 					draggable={false}
@@ -185,19 +160,13 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 							? '10px solid #3b82f6' // Prominent blue outline when focused
 							: '10px solid transparent',
 						borderRadius: 'var(--radius-2)',
+						position: 'relative',
+						zIndex: isFocused ? 1 : 0,
 					}}
 					suppressHydrationWarning
 					onLoad={() => {
 						// Initialize focus state when iframe loads
 						if (iframeRef.current && iframeRef.current.contentWindow) {
-							iframeRef.current.contentWindow.postMessage(
-								{
-									type: isFocused ? 'RESUME_UPDATES' : 'PAUSE_UPDATES',
-									frameId: shape.id,
-								},
-								'*'
-							)
-
 							// If we have stored file data, restore it
 							if (shape.props.fileData?.content) {
 								const fileData = shape.props.fileData
@@ -219,6 +188,25 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 						}
 					}}
 				/>
+
+				{/* Screenshot overlay */}
+				{!isFocused && shape.props.screenshot && (
+					<div
+						style={{
+							position: 'absolute',
+							top: 0,
+							left: 0,
+							width: toDomPrecision(shape.props.w),
+							height: toDomPrecision(shape.props.h),
+							backgroundImage: `url(${shape.props.screenshot})`,
+							backgroundSize: 'cover',
+							backgroundPosition: 'center',
+							borderRadius: 'var(--radius-2)',
+							zIndex: 2,
+							pointerEvents: 'none',
+						}}
+					/>
+				)}
 
 				{/* Duplicate button */}
 				<div
@@ -243,7 +231,6 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 								x: currentPoint.x + 20,
 								y: currentPoint.y + 20,
 								props: {
-									html: shape.props.html,
 									w: shape.props.w,
 									h: shape.props.h,
 									fileData: shape.props.fileData,
