@@ -969,24 +969,25 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 
 			// Get current branch reference
 			const currentRefHash = `refs/heads/${gitRepo.currentBranch}`
+			console.log('[commitLocalDirectory] currentRefHash:', currentRefHash)
 			const db = await openDB()
 			let transaction = db.transaction(GIT_OBJECTS_STORE, 'readonly')
 			let store = transaction.objectStore(GIT_OBJECTS_STORE)
 
 			// Debug the object store and current reference hash
-			console.log(`[Git] Looking for ref: ${currentRefHash} in object store`)
+			console.log(`[commitLocalDirectory] Looking for ref: ${currentRefHash} in object store`)
 
 			// Check if the reference exists first
 			const checkRequest = store.count(currentRefHash)
 			const count = await new Promise<number>((resolve, reject) => {
 				checkRequest.onsuccess = () => resolve(checkRequest.result)
 				checkRequest.onerror = () => {
-					console.error('Count error:', checkRequest.error)
+					console.error('[commitLocalDirectory] Count error:', checkRequest.error)
 					reject(checkRequest.error)
 				}
 			})
 
-			console.log(`[Git] Found ${count} matching references`)
+			console.log(`[commitLocalDirectory] Found ${count} matching references`)
 
 			// If the reference doesn't exist, create an initial commit first
 			if (count === 0) {
@@ -1034,15 +1035,18 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 				transaction = (await openDB()).transaction(GIT_OBJECTS_STORE, 'readonly')
 				store = transaction.objectStore(GIT_OBJECTS_STORE)
 
+				console.log('[commitLocalDirectory] After initial commit, looking for ref:', currentRefHash)
 				const refRequest = store.get(currentRefHash)
 				const currentRef = await new Promise<any>((resolve, reject) => {
 					refRequest.onsuccess = () => resolve(refRequest.result)
 					refRequest.onerror = () => reject(refRequest.error)
 				})
-
+				console.log('[commitLocalDirectory] currentRef after initial commit:', currentRef)
 				if (!currentRef) {
 					db.close()
-					throw new Error(`Current branch reference not found even after creation`)
+					throw new Error(
+						`[commitLocalDirectory] Current branch reference not found even after creation`
+					)
 				}
 
 				// Create an empty tree for the initial commit
@@ -1113,38 +1117,67 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 			}
 
 			const refRequest = store.get(currentRefHash)
+			if (!currentRefHash) {
+				throw new Error(
+					'[commitLocalDirectory] currentRefHash is undefined or null before store.get'
+				)
+			}
 			const currentRef = await new Promise<any>((resolve, reject) => {
 				refRequest.onsuccess = () => resolve(refRequest.result)
 				refRequest.onerror = () => reject(refRequest.error)
 			})
-
+			console.log('[commitLocalDirectory] currentRef:', currentRef)
 			if (!currentRef) {
 				db.close()
-				throw new Error(`Current branch reference not found`)
+				throw new Error(`[commitLocalDirectory] Current branch reference not found`)
+			}
+
+			let refTarget = currentRef.target
+			if (!refTarget && currentRef.data) {
+				refTarget = new TextDecoder().decode(currentRef.data)
 			}
 
 			// Get current commit
-			const commitRequest = store.get(currentRef.target)
+			const commitRequest = store.get(refTarget)
+			console.log('[commitLocalDirectory] Getting commit for target:', refTarget)
 			const currentCommit = await new Promise<any>((resolve, reject) => {
 				commitRequest.onsuccess = () => resolve(commitRequest.result)
 				commitRequest.onerror = () => reject(commitRequest.error)
 			})
-
+			console.log('[commitLocalDirectory] currentCommit:', currentCommit)
 			if (!currentCommit) {
 				db.close()
-				throw new Error(`Current commit not found`)
+				throw new Error(`[commitLocalDirectory] Current commit not found`)
+			}
+
+			// Decode commit data to get the actual commit object
+			let commitData = currentCommit
+			if (currentCommit.data) {
+				const decoded = new TextDecoder().decode(currentCommit.data)
+				try {
+					commitData = JSON.parse(decoded)
+				} catch (e) {
+					db.close()
+					throw new Error(`[commitLocalDirectory] Failed to parse commit data: ${e}`)
+				}
+			}
+
+			if (!commitData.tree) {
+				db.close()
+				throw new Error(`[commitLocalDirectory] Commit object does not have a tree property`)
 			}
 
 			// Get current tree
-			const treeRequest = store.get(currentCommit.tree)
+			const treeRequest = store.get(commitData.tree)
+			console.log('[commitLocalDirectory] Getting tree for:', commitData.tree)
 			const currentTree = await new Promise<any>((resolve, reject) => {
 				treeRequest.onsuccess = () => resolve(treeRequest.result)
 				treeRequest.onerror = () => reject(treeRequest.error)
 			})
+			console.log('[commitLocalDirectory] currentTree:', currentTree)
 			db.close()
-
 			if (!currentTree) {
-				throw new Error(`Current tree not found`)
+				throw new Error(`[commitLocalDirectory] Current tree not found`)
 			}
 
 			const treeData = JSON.parse(new TextDecoder().decode(new Uint8Array(currentTree.data)))
@@ -1203,7 +1236,7 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 			const commitObject = {
 				message,
 				tree: newTreeHash,
-				parents: [currentRef.target],
+				parents: [refTarget],
 				author,
 				committer: author,
 			}

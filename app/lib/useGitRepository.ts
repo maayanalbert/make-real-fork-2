@@ -100,33 +100,6 @@ const getGitObject = async (hash: string): Promise<GitObject | null> => {
 	}
 }
 
-// Get all Git objects by type
-const getGitObjectsByType = async (type: GitObjectType): Promise<GitObject[]> => {
-	try {
-		const db = await openDB()
-		const transaction = db.transaction(GIT_OBJECTS_STORE, 'readonly')
-		const store = transaction.objectStore(GIT_OBJECTS_STORE)
-		const index = store.index('type')
-
-		return new Promise((resolve, reject) => {
-			const request = index.getAll(type)
-
-			request.onsuccess = () => {
-				db.close()
-				resolve(request.result || [])
-			}
-
-			request.onerror = () => {
-				db.close()
-				reject(request.error)
-			}
-		})
-	} catch (error) {
-		console.error(`Failed to get Git objects of type ${type}:`, error)
-		return []
-	}
-}
-
 // Convert array data to string
 const arrayBufferToString = (data: number[]): string => {
 	return new TextDecoder().decode(new Uint8Array(data))
