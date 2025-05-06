@@ -2,6 +2,18 @@ import { useState, useEffect, useRef } from 'react'
 import { useProjectSettings } from '../lib/ProjectSettingsContext'
 import { motion, AnimatePresence } from 'framer-motion'
 
+// Import the type from the context file
+type FileSystemDirectoryHandle = {
+	kind: 'directory'
+	name: string
+	queryPermission?: (descriptor: {
+		mode: 'readwrite' | 'read'
+	}) => Promise<'granted' | 'denied' | 'prompt'>
+	requestPermission?: (descriptor: {
+		mode: 'readwrite' | 'read'
+	}) => Promise<'granted' | 'denied' | 'prompt'>
+}
+
 interface FileSelectionModalProps {
 	isOpen?: boolean
 	setIsOpen?: (isOpen: boolean) => void
@@ -46,7 +58,7 @@ export function ProjectSettingsModal({
 	useEffect(() => {
 		const checkExistingPermission = async () => {
 			if (directoryHandle && isModalOpen) {
-				await verifyPermission(directoryHandle)
+				await verifyPermission(directoryHandle as FileSystemDirectoryHandle)
 			}
 		}
 
@@ -105,7 +117,7 @@ export function ProjectSettingsModal({
 	const openDirectoryPicker = async () => {
 		try {
 			// @ts-ignore - showDirectoryPicker may not be recognized in TypeScript definitions
-			const dirHandle = await window.showDirectoryPicker()
+			const dirHandle = (await window.showDirectoryPicker()) as FileSystemDirectoryHandle
 			// Check permission immediately after selection
 			const hasPermission = await verifyPermission(dirHandle)
 			if (hasPermission) {
@@ -129,7 +141,7 @@ export function ProjectSettingsModal({
 
 		if (handleToCheck && newPort) {
 			// Verify permission before proceeding
-			if (await verifyPermission(handleToCheck)) {
+			if (await verifyPermission(handleToCheck as FileSystemDirectoryHandle)) {
 				// Use the new selected handle or keep the existing one
 				if (selectedHandle) {
 					await setDirectoryHandle(selectedHandle)
@@ -145,7 +157,7 @@ export function ProjectSettingsModal({
 	const retryPermission = async () => {
 		const handleToCheck = selectedHandle || directoryHandle
 		if (handleToCheck) {
-			await verifyPermission(handleToCheck)
+			await verifyPermission(handleToCheck as FileSystemDirectoryHandle)
 		}
 	}
 
