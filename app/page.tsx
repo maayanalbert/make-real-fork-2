@@ -15,6 +15,19 @@ const Tldraw = dynamic(async () => (await import('tldraw')).Tldraw, {
 
 const shapeUtils = [PreviewShapeUtil]
 
+const components = {
+	Minimap: null,
+	StylePanel: null,
+	PageMenu: null,
+	MainMenu: null,
+	ContextMenu: null,
+	ActionsMenu: null,
+	HelpMenu: null,
+	ZoomMenu: null,
+	NavigationPanel: null,
+	Toolbar: null,
+}
+
 // Component to add initial preview shape
 function InitialPreviewShape() {
 	const editor = useEditor()
@@ -57,9 +70,8 @@ export default function App() {
 		<ProjectSettingsProvider>
 			<div className="editor">
 				<FocusPreviewProvider>
-					<Tldraw shapeUtils={shapeUtils} hideUi>
+					<Tldraw shapeUtils={shapeUtils} components={components}>
 						<InitialPreviewShape />
-
 						<ProjectSettingsModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
 					</Tldraw>
 				</FocusPreviewProvider>
