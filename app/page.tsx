@@ -40,6 +40,7 @@ function InitialPreviewShape() {
 						w: (960 * 2) / 3,
 						h: (540 * 2) / 3,
 						branch: 'main',
+						screenshot: '',
 					},
 				})
 			}
@@ -57,7 +58,7 @@ export default function App() {
 			<div className="editor">
 				<FocusPreviewProvider>
 					<Tldraw shapeUtils={shapeUtils} hideUi>
-						{/* <InitialPreviewShape /> */}
+						<InitialPreviewShape />
 
 						<ProjectSettingsModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
 					</Tldraw>

@@ -23,7 +23,7 @@ export type PreviewShape = TLBaseShape<
 	{
 		w: number
 		h: number
-		screenshot?: string
+		screenshot: string
 		branch: string
 	}
 >
@@ -35,7 +35,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 		return {
 			w: (960 * 2) / 3,
 			h: 540,
-			screenshot: undefined,
+			screenshot: '',
 			branch: '',
 		}
 	}
@@ -244,7 +244,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 						/>
 					)}
 
-					{!isFocused && shape.props.screenshot && (
+					{!isFocused && !!shape.props.screenshot && (
 						<div
 							className="rounded-xl shadow-2xl  border-white"
 							style={{
