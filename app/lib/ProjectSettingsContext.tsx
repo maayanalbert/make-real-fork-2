@@ -626,12 +626,39 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 			await storeGitRepoInfo(newRepoInfo)
 			setGitRepo(newRepoInfo)
 
-			// Call API to fetch repository data
-			const apiUrl = `http://localhost:3000/api/git/initialize`
-			console.log(`[Git] Calling API at: ${apiUrl}`)
+			// Call API to initialize repository with a single file first
+			const initApiUrl = `http://localhost:3000/api/git/initialize`
+			console.log(`[Git] Calling API at: ${initApiUrl} with initial file`)
 
-			// Process directory and get files
-			let files: { path: string; content: string; sha: string; size: number }[] = []
+			// Create a single initial file with "api" content
+			const initialFile = {
+				path: 'initial.txt',
+				content: 'api',
+				sha: await generateHash(`blob ${3}\0api`),
+				size: 3,
+			}
+
+			// First request: Initialize with just one file
+			const initResponse = await fetch(initApiUrl, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+				},
+				body: JSON.stringify({
+					repoUrl,
+					branch: branch || 'main',
+					files: [initialFile],
+				}),
+			})
+
+			if (!initResponse.ok) {
+				throw new Error(`Failed to initialize repository: ${initResponse.statusText}`)
+			}
+
+			await initResponse.json()
+			console.log('[Git] Repository initialized with initial file')
+
+			// Process directory and get remaining files
 			if (directoryHandle) {
 				// Try to find .gitignore
 				let ignorePatterns: string[] = []
@@ -648,35 +675,46 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 
 				// Process directory and convert Uint8Array to string
 				const processedFiles = await processDirectory(directoryHandle, ignorePatterns)
-				files = await Promise.all(
-					processedFiles.map(async (file) => ({
-						path: file.path,
-						content: new TextDecoder().decode(file.content),
-						sha: await generateHash(
-							`blob ${file.content.byteLength}\0${new TextDecoder().decode(file.content)}`
-						),
-						size: file.size,
-					}))
+				const files = await Promise.all(
+					processedFiles
+						.filter((file) => file.path !== 'initial.txt') // Skip the initial file we already uploaded
+						.map(async (file) => ({
+							path: file.path,
+							content: new TextDecoder().decode(file.content),
+							sha: await generateHash(
+								`blob ${file.content.byteLength}\0${new TextDecoder().decode(file.content)}`
+							),
+							size: file.size,
+						}))
 				)
+
+				// Only make the second API call if there are files to upload
+				if (files.length > 0) {
+					console.log(`[Git] Uploading remaining ${files.length} files`)
+
+					// Second request: Upload the rest of the files
+					const uploadApiUrl = `http://localhost:3000/api/git/push`
+					const uploadResponse = await fetch(uploadApiUrl, {
+						method: 'POST',
+						headers: {
+							'Content-Type': 'application/json',
+						},
+						body: JSON.stringify({
+							repoUrl,
+							branch: branch || 'main',
+							commits: [{ message: 'Add remaining files' }],
+							files,
+						}),
+					})
+
+					if (!uploadResponse.ok) {
+						throw new Error(`Failed to upload remaining files: ${uploadResponse.statusText}`)
+					}
+
+					await uploadResponse.json()
+					console.log('[Git] Successfully uploaded remaining files')
+				}
 			}
-
-			const response = await fetch(apiUrl, {
-				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-				},
-				body: JSON.stringify({
-					repoUrl,
-					branch: branch || 'main',
-					files,
-				}),
-			})
-
-			if (!response.ok) {
-				throw new Error(`Failed to initialize repository: ${response.statusText}`)
-			}
-
-			const repoData = await response.json()
 
 			// Update repo info
 			const updatedRepoInfo = {
@@ -688,7 +726,7 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 			await storeGitRepoInfo(updatedRepoInfo)
 			setGitRepo(updatedRepoInfo)
 
-			console.log('[Git] Repository initialized successfully')
+			console.log('[Git] Repository initialization complete')
 		} catch (error) {
 			console.error('[Git] Failed to initialize repository:', error)
 			throw error

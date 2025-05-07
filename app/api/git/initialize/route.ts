@@ -95,33 +95,102 @@ export async function POST(request: Request) {
 		}
 
 		const results = []
-		for (const file of filteredFiles) {
-			console.log(`[INIT] Creating file via Contents API: ${file.path}`)
-			console.log('[INIT] Params:', {
+
+		// Create the first file using Contents API
+		const firstFile = filteredFiles[0]
+		console.log(`[INIT] Creating first file via Contents API: ${firstFile.path}`)
+		try {
+			const response = await octokit.repos.createOrUpdateFileContents({
 				owner,
 				repo: repoName,
-				path: file.path,
+				path: firstFile.path,
+				message: 'Initial commit',
+				content: Buffer.from(firstFile.content).toString('base64'),
 				branch,
-				contentPreview: file.content.slice(0, 100),
-				contentLength: file.content.length,
 			})
-			try {
-				const response: any = await octokit.repos.createOrUpdateFileContents({
-					owner,
-					repo: repoName,
-					path: file.path,
-					message: results.length === 0 ? 'Initial commit' : `Add ${file.path}`,
-					content: Buffer.from(file.content).toString('base64'),
-					branch,
-				})
-				console.log('[INIT] createOrUpdateFileContents response:', response)
-				results.push({ file: file.path, result: response.data })
-			} catch (error) {
-				console.error(`[INIT] Error creating file ${file.path}:`, error)
-				results.push({ file: file.path, error })
-			}
+			console.log('[INIT] First file created via Contents API:', response.data)
+			results.push({ file: firstFile.path, result: response.data })
+
+			// Get the latest commit SHA after creating the first file
+			const { data: refData } = await octokit.git.getRef({
+				owner,
+				repo: repoName,
+				ref: `heads/${branch}`,
+			})
+			const latestCommitSha = refData.object.sha
+
+			// If there are more files, create them using blobs/tree approach
+			// if (filteredFiles.length > 1) {
+			// 	console.log('[INIT] Creating remaining files using Git Data API')
+
+			// 	// Create blobs for each remaining file
+			// 	const blobPromises = filteredFiles.slice(1).map(async (file) => {
+			// 		const { data: blobData } = await octokit.git.createBlob({
+			// 			owner,
+			// 			repo: repoName,
+			// 			content: Buffer.from(file.content).toString('base64'),
+			// 			encoding: 'base64',
+			// 		})
+			// 		console.log(`[INIT] Created blob for ${file.path}:`, blobData.sha)
+			// 		return {
+			// 			path: file.path,
+			// 			sha: blobData.sha,
+			// 			mode: '100644' as const, // Regular file with explicit type
+			// 			type: 'blob' as const,
+			// 		}
+			// 	})
+
+			// 	const treeItems = await Promise.all(blobPromises)
+
+			// 	// Create a tree containing all the blobs
+			// 	const { data: treeData } = await octokit.git.createTree({
+			// 		owner,
+			// 		repo: repoName,
+			// 		base_tree: latestCommitSha,
+			// 		tree: treeItems,
+			// 	})
+			// 	console.log('[INIT] Created tree:', treeData.sha)
+
+			// 	// Get the latest commit to use as parent
+			// 	const { data: commitData } = await octokit.git.getCommit({
+			// 		owner,
+			// 		repo: repoName,
+			// 		commit_sha: latestCommitSha,
+			// 	})
+
+			// 	// Create a commit with the new tree
+			// 	const { data: newCommitData } = await octokit.git.createCommit({
+			// 		owner,
+			// 		repo: repoName,
+			// 		message: 'Add remaining files',
+			// 		tree: treeData.sha,
+			// 		parents: [commitData.sha],
+			// 	})
+			// 	console.log('[INIT] Created commit:', newCommitData.sha)
+
+			// 	// Update the branch reference to point to the new commit
+			// 	const { data: refUpdateData } = await octokit.git.updateRef({
+			// 		owner,
+			// 		repo: repoName,
+			// 		ref: `heads/${branch}`,
+			// 		sha: newCommitData.sha,
+			// 	})
+			// 	console.log('[INIT] Updated branch reference:', refUpdateData)
+
+			// 	// Add results for the remaining files
+			// 	filteredFiles.slice(1).forEach((file) => {
+			// 		results.push({ file: file.path, result: 'Added via Git Data API' })
+			// 	})
+			// }
+		} catch (error) {
+			console.error(`[INIT] Error creating repository files:`, error)
+			return NextResponse.json(
+				{ error: `Error creating repository files: ${error}` },
+				{ status: 500 }
+			)
 		}
-		console.log('[INIT] All files created via Contents API:', results)
+
+		console.log('[INIT] All files created:', results)
 		return NextResponse.json({
 			repo: createRepoData,
 			branch,

@@ -329,8 +329,10 @@ export function ProjectSettingsModal({
 												</svg>
 												Initializing...
 											</>
-										) : (
+										) : hasPreviewShapes ? (
 											'Save'
+										) : (
+											'Finish'
 										)}
 									</button>
 								</div>
