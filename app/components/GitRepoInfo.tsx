@@ -27,6 +27,7 @@ export default function GitRepoInfo() {
 	const [selectedBranch, setSelectedBranch] = useState('')
 	const [localDirCommitMessage, setLocalDirCommitMessage] = useState('')
 	const [localDirLoading, setLocalDirLoading] = useState(false)
+	const [isClearing, setIsClearing] = useState(false)
 
 	// Load commit info when commitSha changes
 	useEffect(() => {
@@ -158,6 +159,51 @@ export default function GitRepoInfo() {
 			alert(`Failed to commit local directory: ${err instanceof Error ? err.message : String(err)}`)
 		} finally {
 			setLocalDirLoading(false)
+		}
+	}
+
+	// Clear repository information
+	const clearRepoInfo = async () => {
+		if (
+			confirm("Are you sure you want to clear repository information? This won't delete any files.")
+		) {
+			setIsClearing(true)
+			try {
+				// Access IndexedDB and clear the repo info
+				const DB_NAME = 'project-settings-db'
+				const DB_VERSION = 2
+				const GIT_REPO_STORE = 'git-repo-info'
+
+				const request = indexedDB.open(DB_NAME, DB_VERSION)
+
+				request.onsuccess = (event) => {
+					const db = request.result
+					const transaction = db.transaction(GIT_REPO_STORE, 'readwrite')
+					const store = transaction.objectStore(GIT_REPO_STORE)
+
+					// Clear the entry by putting an empty repo
+					store.put(
+						{
+							repoUrl: '',
+							currentBranch: '',
+							branches: [],
+							lastCommitDate: null,
+							isInitialized: false,
+						},
+						'currentRepo'
+					)
+
+					transaction.oncomplete = () => {
+						db.close()
+						// Force page reload to refresh context
+						window.location.reload()
+					}
+				}
+			} catch (error) {
+				console.error('Failed to clear repository information:', error)
+				alert('Failed to clear repository information. Please try again.')
+				setIsClearing(false)
+			}
 		}
 	}
 
@@ -501,6 +547,16 @@ export default function GitRepoInfo() {
 							)}
 						</div>
 					)}
+
+					<div className="flex justify-end">
+						<button
+							onClick={clearRepoInfo}
+							disabled={isClearing}
+							className="px-3 py-1 bg-red-100 hover:bg-red-200 text-red-700 border border-red-300 rounded-md text-sm font-medium cursor-pointer transition-colors disabled:opacity-50"
+						>
+							{isClearing ? 'Clearing...' : 'Clear Repository Information'}
+						</button>
+					</div>
 				</div>
 			)}
 		</div>

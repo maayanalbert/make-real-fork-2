@@ -1,5 +1,6 @@
 /* eslint-disable react-hooks/rules-of-hooks */
 import { ReactElement, useEffect, useRef, useState } from 'react'
+import { v4 as uuidv4 } from 'uuid'
 import {
 	TLBaseShape,
 	BaseBoxShapeUtil,
@@ -23,12 +24,7 @@ export type PreviewShape = TLBaseShape<
 		w: number
 		h: number
 		screenshot?: string
-		fileData?: {
-			path?: string
-			content?: string
-			type?: string
-			name?: string
-		}
+		branch: string
 	}
 >
 
@@ -40,12 +36,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			w: (960 * 2) / 3,
 			h: 540,
 			screenshot: undefined,
-			fileData: {
-				path: '',
-				content: '',
-				type: '',
-				name: '',
-			},
+			branch: '',
 		}
 	}
 
@@ -59,10 +50,12 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 		const toast = useToasts()
 		const editor = useEditor()
 		const { focusedPreviewId, setFocusedPreviewId } = useFocusPreview()
-		const { directoryHandle, port } = useProjectSettings()
+		const { directoryHandle, port, gitRepo, commitLocalDirectory, switchBranch } =
+			useProjectSettings()
 		const iframeRef = useRef<HTMLIFrameElement>(null)
 		const [fileContent, setFileContent] = useState<string | null>(null)
 		const [saveInProgress, setSaveInProgress] = useState(false)
+		const [lastFocusedId, setLastFocusedId] = useState<string | null>(null)
 
 		// Check if this preview is focused
 		const isFocused = focusedPreviewId === shape.id
@@ -77,15 +70,118 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			[editor, shape.id]
 		)
 
-		// Handle selection changes with useEffect
+		// Handle branch switching when focus changes
 		useEffect(() => {
-			if (isSelected && shape.type === 'response') {
-				setFocusedPreviewId(shape.id)
-			} else if (focusedPreviewId === shape.id && !isSelected) {
-				// When shape loses focus, take a screenshot and save file content
-				takeScreenshot()
+			const handleFocusChange = async () => {
+				// Don't do anything if we don't have Git set up or directory handle
+				if (!gitRepo?.isInitialized || !directoryHandle) return
+
+				// If we're focusing this shape and it has a branch
+				if (isSelected && shape.type === 'response') {
+					// If we have a last focused shape that's different, commit its changes first
+					if (lastFocusedId && lastFocusedId !== shape.id) {
+						try {
+							setSaveInProgress(true)
+							// Find the previous shape by ID
+							let previousShape: PreviewShape | undefined
+
+							try {
+								previousShape = editor
+									.getCurrentPageShapes()
+									.find((s) => s.id === lastFocusedId) as PreviewShape | undefined
+							} catch (error) {
+								console.error('Error finding previous shape:', error)
+							}
+
+							if (previousShape?.props.branch) {
+								// Commit changes of the previous shape to its branch
+								await commitLocalDirectory(`Update from shape ${lastFocusedId}`)
+
+								toast.addToast({
+									icon: 'check',
+									title: `Saved to branch ${previousShape.props.branch}`,
+								})
+							}
+
+							// If this shape has a branch, switch to it
+							if (shape.props.branch) {
+								const branchName = shape.props.branch
+
+								// Switch to this shape's branch
+								await switchBranch(branchName)
+
+								toast.addToast({
+									icon: 'check',
+									title: `Switched to branch ${branchName}`,
+								})
+							}
+						} catch (error) {
+							console.error('Error during branch operations:', error)
+							toast.addToast({
+								icon: 'cross-2',
+								title: 'Failed to switch branches',
+							})
+						} finally {
+							setSaveInProgress(false)
+						}
+					} else if (!lastFocusedId && shape.props.branch) {
+						// First focus of any shape, just switch to its branch
+						try {
+							await switchBranch(shape.props.branch)
+							toast.addToast({
+								icon: 'check',
+								title: `Switched to branch ${shape.props.branch}`,
+							})
+						} catch (error) {
+							console.error('Error switching to initial branch:', error)
+							toast.addToast({
+								icon: 'cross-2',
+								title: 'Failed to switch to initial branch',
+							})
+						}
+					}
+
+					// Update the last focused ID
+					setLastFocusedId(shape.id)
+					setFocusedPreviewId(shape.id)
+				}
 			}
-		}, [isSelected, shape.id, shape.type, focusedPreviewId, setFocusedPreviewId, editor])
+
+			handleFocusChange()
+		}, [
+			isSelected,
+			shape.id,
+			shape.type,
+			focusedPreviewId,
+			lastFocusedId,
+			setFocusedPreviewId,
+			editor,
+			gitRepo,
+			directoryHandle,
+			commitLocalDirectory,
+			switchBranch,
+			toast,
+		])
+
+		// Take screenshot and save branch when losing focus
+		useEffect(() => {
+			if (focusedPreviewId === shape.id && !isSelected && lastFocusedId === shape.id) {
+				// Only take screenshot and save when this shape was previously focused but now isn't
+				console.log('taking screenshot and saving branch state')
+				takeScreenshot()
+
+				// Save changes to this shape's branch if we have one
+				if (gitRepo?.isInitialized && directoryHandle && shape.props.branch) {
+					commitLocalDirectory(`Update from shape ${shape.id}`).catch((error) => {
+						console.error('Error saving to branch:', error)
+						toast.addToast({
+							icon: 'cross-2',
+							title: 'Failed to save to branch',
+						})
+					})
+				}
+			}
+		}, [isSelected, shape.id, focusedPreviewId, lastFocusedId, gitRepo, directoryHandle])
 
 		// Function to take a screenshot of the iframe
 		const takeScreenshot = async () => {
@@ -128,22 +224,6 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			}
 		}
 
-		const boxShadow = useValue(
-			'box shadow',
-			() => {
-				const rotation = this.editor.getShapePageTransform(shape)!.rotation()
-				return getRotatedBoxShadow(rotation)
-			},
-			[this.editor]
-		)
-
-		// Check for stored file data on mount
-		useEffect(() => {
-			if (shape.props.fileData?.content && isFocused) {
-				setFileContent(shape.props.fileData.content)
-			}
-		}, [shape.props.fileData, isFocused])
-
 		return (
 			<HTMLContainer className="tl-embed-container" id={shape.id}>
 				<div className="shadow-2xl">
@@ -161,29 +241,6 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 							}}
 							className="rounded-xl border-[10px] border-blue-500"
 							suppressHydrationWarning
-							onLoad={() => {
-								// Initialize focus state when iframe loads
-								if (iframeRef.current && iframeRef.current.contentWindow) {
-									// If we have stored file data, restore it
-									if (shape.props.fileData?.content) {
-										const fileData = shape.props.fileData
-										// Set HTML content to display file data
-										editor.updateShape({
-											id: shape.id,
-											type: 'response',
-											props: {
-												...shape.props,
-												html: `<div class="file-preview">
-											<h3>${fileData.name || 'File'}</h3>
-											<p>File loaded. Content will be displayed here.</p>
-											<p><strong>File Type:</strong> ${fileData.type || 'Unknown'}</p>
-											<input type="hidden" id="file-content-${shape.id}" value="${fileData.content}" />
-										</div>`,
-											},
-										})
-									}
-								}
-							}}
 						/>
 					)}
 
@@ -223,6 +280,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 						// Create a new preview shape with the same HTML content
 						const currentPoint = this.editor.inputs.currentPagePoint
 						try {
+							// Create a new shape
 							const newShape = this.editor.createShape<PreviewShape>({
 								type: 'response',
 								x: currentPoint.x + 20,
@@ -230,7 +288,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 								props: {
 									w: shape.props.w,
 									h: shape.props.h,
-									fileData: shape.props.fileData,
+									branch: uuidv4(),
 								},
 							})
 
@@ -298,16 +356,6 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 	indicator(shape: PreviewShape) {
 		return <rect width={shape.props.w} height={shape.props.h} />
 	}
-}
-
-function getRotatedBoxShadow(rotation: number) {
-	const cssStrings = ROTATING_BOX_SHADOWS.map((shadow) => {
-		const { offsetX, offsetY, blur, spread, color } = shadow
-		const vec = new Vec(offsetX, offsetY)
-		const { x, y } = vec.rot(-rotation)
-		return `${x}px ${y}px ${blur}px ${spread}px ${color}`
-	})
-	return cssStrings.join(', ')
 }
 
 const ROTATING_BOX_SHADOWS = [

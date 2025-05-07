@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useProjectSettings } from '../lib/ProjectSettingsContext'
 import { motion, AnimatePresence } from 'framer-motion'
+import { useEditor } from 'tldraw'
 
 // Import the type from the context file
 type FileSystemDirectoryHandle = {
@@ -23,13 +24,19 @@ export function ProjectSettingsModal({
 	isOpen: externalIsOpen,
 	setIsOpen: externalSetIsOpen,
 }: FileSelectionModalProps = {}) {
-	const { directoryHandle, port, setDirectoryHandle, setPort } = useProjectSettings()
+	const { directoryHandle, port, setDirectoryHandle, setPort, initializeGitRepo } =
+		useProjectSettings()
 	const [newPort, setNewPort] = useState(port)
 	const [internalIsOpen, setInternalIsOpen] = useState(false)
 	const [selectedHandle, setSelectedHandle] = useState<FileSystemDirectoryHandle | null>(null)
 	const [permissionError, setPermissionError] = useState<string | null>(null)
 	const [rejectedPath, setRejectedPath] = useState<string | null>(null)
+	const [hasPreviewShapes, setHasPreviewShapes] = useState(false)
+	const [repoUrl, setRepoUrl] = useState('')
+	const [isLoading, setIsLoading] = useState(false)
+	const [error, setError] = useState<string | null>(null)
 
+	const editor = useEditor()
 	const modalRef = useRef<HTMLDivElement>(null)
 
 	// Determine if modal is open based on props or internal state
@@ -82,10 +89,20 @@ export function ProjectSettingsModal({
 		}
 	}, [isModalOpen, directoryHandle])
 
+	// Check if there are any preview shapes
+	useEffect(() => {
+		if (editor) {
+			const previewShapes = editor
+				.getCurrentPageShapes()
+				.filter((shape) => shape.type === 'response')
+			setHasPreviewShapes(previewShapes.length > 0)
+		}
+	}, [editor, isModalOpen])
+
 	// Function to check permission for a directory handle
 	const verifyPermission = async (handle: FileSystemDirectoryHandle): Promise<boolean> => {
 		if (!handle.queryPermission || !handle.requestPermission) {
-			setPermissionError("Your browser doesn't support the required permissions API")
+			setError('You must allow folder access to continue.')
 			return false
 		}
 
@@ -99,16 +116,14 @@ export function ProjectSettingsModal({
 			}
 
 			if (permission !== 'granted') {
-				setPermissionError('Permission denied. Please allow access to the selected folder.')
-				setRejectedPath(handle.name)
+				setError('You must allow folder access to continue.')
 				return false
 			}
 
-			setPermissionError(null)
-			setRejectedPath(null)
+			setError(null)
 			return true
 		} catch (error) {
-			setPermissionError('Error checking permissions. Please try again.')
+			setError('You must allow folder access to continue.')
 			return false
 		}
 	}
@@ -122,34 +137,59 @@ export function ProjectSettingsModal({
 			const hasPermission = await verifyPermission(dirHandle)
 			if (hasPermission) {
 				setSelectedHandle(dirHandle)
+				// Automatically set repo URL based on the folder name
+				setRepoUrl(`https://github.com/maayan-albert-dev/${dirHandle.name}.git`)
+				setError(null)
+			} else {
+				setError('You must allow folder access to continue.')
 			}
 		} catch (error) {
-			// Error handling remains but without console.log
-			if ((error as Error).name === 'AbortError') {
-				// User cancelled the selection
-				return
-			}
-			setPermissionError('Error selecting directory. Please try again.')
+			setError('You must allow folder access to continue.')
 		}
 	}
 
 	const handleSubmit = async (e: React.FormEvent) => {
 		e.preventDefault()
+		setError(null)
+		setIsLoading(true)
 
-		// Only save if directory and port are set and we have permissions
-		const handleToCheck = selectedHandle || directoryHandle
+		try {
+			// Only save if directory and port are set and we have permissions
+			const handleToCheck = selectedHandle || directoryHandle
 
-		if (handleToCheck && newPort) {
-			// Verify permission before proceeding
-			if (await verifyPermission(handleToCheck as FileSystemDirectoryHandle)) {
+			if (handleToCheck && newPort) {
+				// Verify permission before proceeding
+				const hasPermission = await verifyPermission(handleToCheck as FileSystemDirectoryHandle)
+				if (!hasPermission) {
+					setError('Permission denied. You must allow access to the selected folder to continue.')
+					setIsLoading(false)
+					return
+				}
+
 				// Use the new selected handle or keep the existing one
 				if (selectedHandle) {
 					await setDirectoryHandle(selectedHandle)
 				}
 
 				setPort(newPort)
+
+				// Initialize Git repository if URL is provided
+				if (repoUrl) {
+					try {
+						await initializeGitRepo(repoUrl, 'main', handleToCheck)
+					} catch (error) {
+						setError('Failed to initialize Git repository. Please check the URL and try again.')
+						setIsLoading(false)
+						return
+					}
+				}
+
 				setModalOpen(false)
 			}
+		} catch (error) {
+			setError('An error occurred while saving settings.')
+		} finally {
+			setIsLoading(false)
 		}
 	}
 
@@ -197,7 +237,9 @@ export function ProjectSettingsModal({
 							exit={{ scale: 0.9, opacity: 0 }}
 							transition={{ type: 'spring', damping: 20, stiffness: 300 }}
 						>
-							<h2 className="mt-0 mb-2 text-2xl font-semibold">Set Up Project</h2>
+							<h2 className="mt-0 mb-2 text-2xl font-semibold">
+								{hasPreviewShapes ? 'Project Settings' : 'Set Up Project'}
+							</h2>
 							<p className="mt-0 mb-5 text-gray-600 text-base">
 								Choose the folder containing your PDF files:
 							</p>
@@ -208,6 +250,7 @@ export function ProjectSettingsModal({
 										type="button"
 										className="w-full py-3 px-4 text-sm text-white bg-blue-500 hover:bg-blue-600 border-none rounded-md text-base font-medium cursor-pointer transition-colors"
 										onClick={openDirectoryPicker}
+										disabled={isLoading}
 									>
 										Browse Folders
 									</button>
@@ -223,31 +266,16 @@ export function ProjectSettingsModal({
 										Selected: {displayPath}
 									</motion.div>
 								)}
-
-								{permissionError && rejectedPath && (
-									<motion.div
-										className="mb-6 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600"
-										initial={{ opacity: 0, y: -10 }}
-										animate={{ opacity: 1, y: 0 }}
-										transition={{ duration: 0.2 }}
-									>
-										<div className="text-xs">
-											Please click &quot;Browse Folders&quot; again and allow access to the folder.
-										</div>
-									</motion.div>
-								)}
-
-								{permissionError && !rejectedPath && (
+								{error && (
 									<motion.div
 										className="mb-4 p-3 bg-red-50 border border-red-200 rounded-md text-sm text-red-600"
 										initial={{ opacity: 0, y: -10 }}
 										animate={{ opacity: 1, y: 0 }}
 										transition={{ duration: 0.2 }}
 									>
-										{permissionError}
+										{error}
 									</motion.div>
 								)}
-
 								<div className="mb-6">
 									<label className="block text-gray-700 text-sm font-medium mb-2">
 										Project Port
@@ -261,22 +289,76 @@ export function ProjectSettingsModal({
 									/>
 								</div>
 
-								<div className="flex justify-end gap-3 ">
+								<div className="flex justify-end gap-3">
 									{isDirectorySet && (
 										<button
 											type="button"
 											className="px-5 py-2.5 bg-transparent border border-gray-300 rounded-md cursor-pointer text-sm text-gray-600 hover:bg-gray-100 transition-colors"
 											onClick={() => setModalOpen(false)}
+											disabled={isLoading}
 										>
 											Cancel
 										</button>
 									)}
 									<button
 										type="submit"
-										className="px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white border-none rounded-md cursor-pointer text-sm font-medium transition-colors disabled:bg-blue-300 disabled:cursor-not-allowed"
-										disabled={!canSubmit}
+										className="px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white border-none rounded-md cursor-pointer text-sm font-medium transition-colors disabled:bg-blue-300 disabled:cursor-not-allowed flex items-center gap-2"
+										disabled={!canSubmit || isLoading}
 									>
-										Save
+										{isLoading ? (
+											<>
+												<svg
+													className="animate-spin h-4 w-4 text-white"
+													xmlns="http://www.w3.org/2000/svg"
+													fill="none"
+													viewBox="0 0 24 24"
+												>
+													<circle
+														className="opacity-25"
+														cx="12"
+														cy="12"
+														r="10"
+														stroke="currentColor"
+														strokeWidth="4"
+													></circle>
+													<path
+														className="opacity-75"
+														fill="currentColor"
+														d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+													></path>
+												</svg>
+												Initializing...
+											</>
+										) : (
+											'Save'
+										)}
+									</button>
+								</div>
+
+								{/* Clear Local Storage Button */}
+								<div className="mt-6 flex justify-center">
+									<button
+										type="button"
+										className="px-4 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium"
+										onClick={() => {
+											localStorage.clear()
+											if ('databases' in indexedDB) {
+												indexedDB
+													.databases()
+													.then((dbs) => {
+														dbs.forEach((db) => db.name && indexedDB.deleteDatabase(db.name))
+													})
+													.finally(() => {
+														window.location.reload()
+													})
+											} else {
+												// Fallback for browsers without indexedDB.databases()
+												window.location.reload()
+											}
+										}}
+										disabled={isLoading}
+									>
+										Clear Local Storage
 									</button>
 								</div>
 							</form>
