@@ -52,7 +52,6 @@ function InitialPreviewShape() {
 					props: {
 						w: (960 * 2) / 3,
 						h: (540 * 2) / 3,
-						branch: 'main',
 						screenshot: '',
 					},
 				})

@@ -2,18 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useProjectSettings } from '../lib/ProjectSettingsContext'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useEditor } from 'tldraw'
-
-// Import the type from the context file
-type FileSystemDirectoryHandle = {
-	kind: 'directory'
-	name: string
-	queryPermission?: (descriptor: {
-		mode: 'readwrite' | 'read'
-	}) => Promise<'granted' | 'denied' | 'prompt'>
-	requestPermission?: (descriptor: {
-		mode: 'readwrite' | 'read'
-	}) => Promise<'granted' | 'denied' | 'prompt'>
-}
+import { FileSystemDirectoryHandle } from '../lib/types'
 
 interface FileSelectionModalProps {
 	isOpen?: boolean
@@ -24,13 +13,11 @@ export function ProjectSettingsModal({
 	isOpen: externalIsOpen,
 	setIsOpen: externalSetIsOpen,
 }: FileSelectionModalProps = {}) {
-	const { directoryHandle, port, setDirectoryHandle, setPort, initializeGitRepo } =
-		useProjectSettings()
+	const { directoryHandle, port, setDirectoryHandle, setPort } = useProjectSettings()
 	const [newPort, setNewPort] = useState(port)
 	const [internalIsOpen, setInternalIsOpen] = useState(false)
 	const [selectedHandle, setSelectedHandle] = useState<FileSystemDirectoryHandle | null>(null)
-	const [permissionError, setPermissionError] = useState<string | null>(null)
-	const [rejectedPath, setRejectedPath] = useState<string | null>(null)
+	const [permissionError] = useState<string | null>(null)
 	const [hasPreviewShapes, setHasPreviewShapes] = useState(false)
 	const [repoUrl, setRepoUrl] = useState('')
 	const [isLoading, setIsLoading] = useState(false)
@@ -172,17 +159,6 @@ export function ProjectSettingsModal({
 				}
 
 				setPort(newPort)
-
-				// Initialize Git repository if URL is provided
-				if (repoUrl) {
-					try {
-						await initializeGitRepo(repoUrl, 'main', handleToCheck)
-					} catch (error) {
-						setError('Failed to initialize Git repository. Please check the URL and try again.')
-						setIsLoading(false)
-						return
-					}
-				}
 
 				setModalOpen(false)
 			}
