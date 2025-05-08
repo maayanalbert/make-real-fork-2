@@ -26,6 +26,20 @@ const components = {
 	ZoomMenu: null,
 	NavigationPanel: null,
 	Toolbar: null,
+	StatusBar: null,
+	RichTextToolbar: null,
+	KeyboardShortcutsDialog: null,
+	QuickActions: null,
+	HelperButtons: null,
+	DebugPanel: null,
+	DebugMenu: null,
+	MenuPanel: null,
+	TopPanel: null,
+	SharePanel: null,
+	CursorChatBubble: null,
+	Dialogs: null,
+	Toasts: null,
+	A11y: null,
 }
 
 // Component to add initial preview shape
