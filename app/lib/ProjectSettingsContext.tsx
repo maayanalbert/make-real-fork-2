@@ -315,6 +315,7 @@ const shouldIgnore = (path: string, patterns: string[]): boolean => {
 		'.ico',
 		'.tiff',
 		'.tif',
+		'.crswap',
 	]
 	if (imageExtensions.some((ext) => path.toLowerCase().endsWith(ext))) {
 		return true
@@ -767,10 +768,10 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 				let unchangedCount = 0
 				let deletedCount = 0
 
+				console.log('FILE DIFFS', result.files)
 				// Step 4a: Process added and modified files
 				for (const file of result.files) {
 					if (shouldIgnore(file.path, ignorePatterns)) {
-						console.log(`[Branch] Ignoring file ${file.path} (matches ignore pattern)`)
 						continue
 					}
 
@@ -790,7 +791,6 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 					} else if (file.status === 'modified') {
 						// File exists but has different content - update it
 						try {
-							console.log(`[Branch] Updating changed file: ${file.path}`)
 							const fileHandle = await getOrCreateFileHandleRecursive(directoryHandle, file.path)
 							// @ts-ignore - createWritable exists in the API but not in types
 							const writable = await fileHandle.createWritable()
@@ -802,7 +802,6 @@ export function ProjectSettingsProvider({ children }: { children: ReactNode }) {
 						}
 					} else if (file.status === 'unchanged') {
 						// File exists and has the same content - skip
-						console.log(`[Branch] Skipping unchanged file: ${file.path}`)
 						unchangedCount++
 					}
 				}

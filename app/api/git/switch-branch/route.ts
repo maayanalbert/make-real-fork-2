@@ -197,15 +197,58 @@ export async function POST(request: Request) {
 		const treeData = await treeResponse.json()
 		console.log(`[Switch Branch] Got tree with ${treeData.tree.length} items`)
 
-		// Get all blob contents
-		console.log(
-			`[Switch Branch] Getting blob contents for ${
-				treeData.tree.filter((item: any) => item.type === 'blob').length
-			} files`
+		// Get the source branch tree for comparison
+		const sourceBranch = fromBranch || 'main'
+		console.log(`[Switch Branch] Getting tree for source branch ${sourceBranch}`)
+		const sourceTreeResponse = await fetch(
+			`https://api.github.com/repos/${owner}/${repoName}/git/trees/${sourceBranch}?recursive=1`,
+			{
+				headers: {
+					Authorization: `token ${GITHUB_TOKEN}`,
+					Accept: 'application/vnd.github.v3+json',
+					'X-GitHub-Api-Version': '2022-11-28',
+				},
+			}
 		)
-		const files = await Promise.all(
+
+		if (!sourceTreeResponse.ok) {
+			console.error(`[Switch Branch] Failed to get source tree:`, await sourceTreeResponse.text())
+			return NextResponse.json(
+				{
+					error: `Failed to get source tree: ${sourceTreeResponse.statusText}`,
+				},
+				{ status: sourceTreeResponse.status }
+			)
+		}
+
+		const sourceTreeData = await sourceTreeResponse.json()
+		console.log(`[Switch Branch] Got source tree with ${sourceTreeData.tree.length} items`)
+
+		// Create maps for easy comparison
+		const targetFiles = new Map<string, string>(
 			treeData.tree
 				.filter((item: any) => item.type === 'blob')
+				.map((item: any) => [item.path, item.sha])
+		)
+		const sourceFiles = new Map<string, string>(
+			sourceTreeData.tree
+				.filter((item: any) => item.type === 'blob')
+				.map((item: any) => [item.path, item.sha])
+		)
+
+		// Find changed files
+		const changedFiles = new Set<string>()
+		Array.from(targetFiles.entries()).forEach(([path, sha]) => {
+			if (sourceFiles.get(path) !== sha) {
+				changedFiles.add(path)
+			}
+		})
+
+		// Get all blob contents for changed files only
+		console.log(`[Switch Branch] Getting blob contents for ${changedFiles.size} changed files`)
+		const files = await Promise.all(
+			treeData.tree
+				.filter((item: any) => item.type === 'blob' && changedFiles.has(item.path))
 				.map(async (item: any) => {
 					console.log(`[Switch Branch] Getting blob for ${item.path}`)
 					const blobResponse = await fetch(

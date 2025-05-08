@@ -277,28 +277,28 @@ export async function POST(request: Request) {
 
 						if (currentTreeResponse.ok) {
 							currentTreeData = await currentTreeResponse.json()
-							console.log(
+
+							throw new Error(
 								`[Branch Diff] Got current tree with ${currentTreeData.tree.length} items`
 							)
 							filesNeedComparison = true
 						} else {
-							console.warn(
+							throw new Error(
 								`[Branch Diff] Failed to get current tree, will fetch all files from target branch`
 							)
 						}
 					} else {
-						console.warn(
+						throw new Error(
 							`[Branch Diff] Failed to get current commit, will fetch all files from target branch`
 						)
 					}
 				} else {
-					console.warn(
+					throw new Error(
 						`[Branch Diff] Failed to get current branch ref, will fetch all files from target branch`
 					)
 				}
 			} catch (error) {
 				console.error(`[Branch Diff] Error fetching current branch tree:`, error)
-				console.warn(`[Branch Diff] Will fetch all files from target branch`)
 			}
 		}
 

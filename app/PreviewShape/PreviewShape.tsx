@@ -48,13 +48,11 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 		const isEditing = useIsEditing(shape.id)
 		const toast = useToasts()
 		const editor = useEditor()
-		const { focusedPreviewId, setFocusedPreviewId } = useFocusPreview()
-		const { directoryHandle, port, gitRepo, commitLocalDirectory, switchBranch } =
-			useProjectSettings()
+		const { focusedPreviewId } = useFocusPreview()
+		const { directoryHandle, port, gitRepo, commitLocalDirectory } = useProjectSettings()
 		const iframeRef = useRef<HTMLIFrameElement>(null)
 		const [fileContent, setFileContent] = useState<string | null>(null)
 		const [isIframeLoading, setIsIframeLoading] = useState(true)
-		const [lastFocusedId, setLastFocusedId] = useState<string | null>(null)
 
 		// Check if this preview is focused
 		const isFocused = focusedPreviewId === shape.id
@@ -69,102 +67,9 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			[editor, shape.id]
 		)
 
-		// Handle branch switching when focus changes
-		useEffect(() => {
-			const handleFocusChange = async () => {
-				// Don't do anything if we don't have Git set up or directory handle
-				if (!gitRepo?.isInitialized || !directoryHandle) return
-
-				// If we're focusing this shape and it has a branch
-				if (isSelected && shape.type === 'response') {
-					console.log(
-						`[PreviewShape] Shape ${shape.id} focused, current branch: ${gitRepo.currentBranch}`
-					)
-					// If we have a last focused shape that's different, commit its changes first
-					if (lastFocusedId && lastFocusedId !== shape.id) {
-						try {
-							// Find the previous shape by ID
-							let previousShape: PreviewShape | undefined
-
-							try {
-								previousShape = editor
-									.getCurrentPageShapes()
-									.find((s) => s.id === lastFocusedId) as PreviewShape | undefined
-							} catch (error) {
-								console.error('[PreviewShape] Error finding previous shape:', error)
-							}
-
-							if (previousShape) {
-								console.log(
-									`[PreviewShape] Committing changes from previous shape ${lastFocusedId}`
-								)
-								// Commit changes of the previous shape to its branch
-								await commitLocalDirectory(`Update from shape ${lastFocusedId}`)
-
-								toast.addToast({
-									icon: 'check',
-									title: `Saved to branch ${previousShape.id}`,
-								})
-							}
-
-							// Switch to this shape's branch
-							console.log(`[PreviewShape] Switching to branch for shape ${shape.id}`)
-							await switchBranch(shape.id)
-
-							toast.addToast({
-								icon: 'check',
-								title: `Switched to branch ${shape.id.split(':')[1]}`,
-							})
-						} catch (error) {
-							console.error('[PreviewShape] Error during branch operations:', error)
-							toast.addToast({
-								icon: 'cross-2',
-								title: 'Failed to switch branches',
-							})
-						}
-					} else if (!lastFocusedId) {
-						// First focus of any shape, just switch to its branch
-						try {
-							console.log(`[PreviewShape] First focus, switching to branch for shape ${shape.id}`)
-							await switchBranch(shape.id)
-							toast.addToast({
-								icon: 'check',
-								title: `Switched to branch ${shape.id.split(':')[1]}`,
-							})
-						} catch (error) {
-							console.error('[PreviewShape] Error switching to initial branch:', error)
-							toast.addToast({
-								icon: 'cross-2',
-								title: 'Failed to switch to initial branch',
-							})
-						}
-					}
-
-					// Update the last focused ID
-					setLastFocusedId(shape.id)
-					setFocusedPreviewId(shape.id)
-				}
-			}
-
-			handleFocusChange()
-		}, [
-			isSelected,
-			shape.id,
-			shape.type,
-			focusedPreviewId,
-			lastFocusedId,
-			setFocusedPreviewId,
-			editor,
-			gitRepo,
-			directoryHandle,
-			commitLocalDirectory,
-			switchBranch,
-			toast,
-		])
-
 		// Take screenshot and save branch when losing focus
 		useEffect(() => {
-			if (focusedPreviewId === shape.id && !isSelected && lastFocusedId === shape.id) {
+			if (focusedPreviewId === shape.id && !isSelected) {
 				// Only take screenshot and save when this shape was previously focused but now isn't
 				console.log('[PreviewShape] Taking screenshot and saving branch state')
 				takeScreenshot()
@@ -180,7 +85,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 					})
 				}
 			}
-		}, [isSelected, shape.id, focusedPreviewId, lastFocusedId, gitRepo, directoryHandle])
+		}, [isSelected, shape.id, focusedPreviewId, gitRepo, directoryHandle])
 
 		// Function to take a screenshot of the iframe
 		const takeScreenshot = async () => {

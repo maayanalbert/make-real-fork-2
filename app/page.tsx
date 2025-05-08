@@ -4,6 +4,7 @@ import dynamic from 'next/dynamic'
 import 'tldraw/tldraw.css'
 import { PreviewShapeUtil } from './PreviewShape/PreviewShape'
 import { FocusPreviewProvider } from './PreviewShape/FocusPreviewContext'
+import { FocusChangeProvider } from './PreviewShape/FocusChangeContext'
 import { ProjectSettingsModal } from './components/ProjectSettingsModal'
 import { useEffect, useState } from 'react'
 import { createShapeId, TLShapeId, Editor, useEditor } from 'tldraw'
@@ -77,15 +78,6 @@ function InitialPreviewShape() {
 				} catch (error) {
 					console.error('Failed to store first frame ID:', error)
 				}
-
-				// Switch to the new shape's branch if Git is initialized
-				if (gitRepo?.isInitialized) {
-					try {
-						await switchBranch(newShapeId)
-					} catch (error) {
-						console.error('Failed to switch to new branch:', error)
-					}
-				}
 			}
 		}, 1000)
 	}, [editor, directoryHandle, gitRepo, switchBranch])
@@ -101,8 +93,10 @@ export default function App() {
 			<div className="editor">
 				<FocusPreviewProvider>
 					<Tldraw persistenceKey="moab" shapeUtils={shapeUtils} components={components}>
-						{!isModalOpen && <InitialPreviewShape />}
-						<ProjectSettingsModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
+						<FocusChangeProvider>
+							{!isModalOpen && <InitialPreviewShape />}
+							<ProjectSettingsModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
+						</FocusChangeProvider>
 					</Tldraw>
 				</FocusPreviewProvider>
 			</div>
