@@ -17,7 +17,6 @@ export async function makeReal(editor: Editor, apiKey: string) {
 		type: 'response',
 		x: maxX + 60, // to the right of the selection
 		y: midY - (540 * 2) / 3 / 2, // half the height of the preview's initial shape
-		props: { html: '' },
 	})
 
 	// Get a screenshot of the selected shapes
@@ -66,9 +65,6 @@ export async function makeReal(editor: Editor, apiKey: string) {
 		editor.updateShape<PreviewShape>({
 			id: newShapeId,
 			type: 'response',
-			props: {
-				html,
-			},
 		})
 
 		console.log(`Response: ${message}`)

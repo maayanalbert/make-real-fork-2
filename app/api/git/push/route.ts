@@ -346,6 +346,7 @@ export async function POST(request: Request) {
 			success: true,
 			message: `Successfully pushed to ${branch}`,
 			commitSha: newCommitData.sha,
+			treeSha: treeData.sha,
 		})
 	} catch (error) {
 		console.error('Error pushing to GitHub:', error)

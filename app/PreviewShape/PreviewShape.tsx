@@ -14,6 +14,7 @@ import {
 	Vec,
 	TldrawUiIcon,
 	useEditor,
+	DefaultSpinner,
 } from 'tldraw'
 import { useFocusPreview } from './FocusPreviewContext'
 import { useProjectSettings } from '../lib/ProjectSettingsContext'
@@ -24,7 +25,6 @@ export type PreviewShape = TLBaseShape<
 		w: number
 		h: number
 		screenshot: string
-		branch: string
 	}
 >
 
@@ -36,7 +36,6 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			w: (960 * 2) / 3,
 			h: 540,
 			screenshot: '',
-			branch: '',
 		}
 	}
 
@@ -54,7 +53,7 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 			useProjectSettings()
 		const iframeRef = useRef<HTMLIFrameElement>(null)
 		const [fileContent, setFileContent] = useState<string | null>(null)
-		const [saveInProgress, setSaveInProgress] = useState(false)
+		const [isIframeLoading, setIsIframeLoading] = useState(true)
 		const [lastFocusedId, setLastFocusedId] = useState<string | null>(null)
 
 		// Check if this preview is focused
@@ -78,10 +77,12 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 
 				// If we're focusing this shape and it has a branch
 				if (isSelected && shape.type === 'response') {
+					console.log(
+						`[PreviewShape] Shape ${shape.id} focused, current branch: ${gitRepo.currentBranch}`
+					)
 					// If we have a last focused shape that's different, commit its changes first
 					if (lastFocusedId && lastFocusedId !== shape.id) {
 						try {
-							setSaveInProgress(true)
 							// Find the previous shape by ID
 							let previousShape: PreviewShape | undefined
 
@@ -90,50 +91,48 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 									.getCurrentPageShapes()
 									.find((s) => s.id === lastFocusedId) as PreviewShape | undefined
 							} catch (error) {
-								console.error('Error finding previous shape:', error)
+								console.error('[PreviewShape] Error finding previous shape:', error)
 							}
 
-							if (previousShape?.props.branch) {
+							if (previousShape) {
+								console.log(
+									`[PreviewShape] Committing changes from previous shape ${lastFocusedId}`
+								)
 								// Commit changes of the previous shape to its branch
 								await commitLocalDirectory(`Update from shape ${lastFocusedId}`)
 
 								toast.addToast({
 									icon: 'check',
-									title: `Saved to branch ${previousShape.props.branch}`,
+									title: `Saved to branch ${previousShape.id}`,
 								})
 							}
 
-							// If this shape has a branch, switch to it
-							if (shape.props.branch) {
-								const branchName = shape.props.branch
+							// Switch to this shape's branch
+							console.log(`[PreviewShape] Switching to branch for shape ${shape.id}`)
+							await switchBranch(shape.id)
 
-								// Switch to this shape's branch
-								await switchBranch(branchName)
-
-								toast.addToast({
-									icon: 'check',
-									title: `Switched to branch ${branchName}`,
-								})
-							}
+							toast.addToast({
+								icon: 'check',
+								title: `Switched to branch ${shape.id.split(':')[1]}`,
+							})
 						} catch (error) {
-							console.error('Error during branch operations:', error)
+							console.error('[PreviewShape] Error during branch operations:', error)
 							toast.addToast({
 								icon: 'cross-2',
 								title: 'Failed to switch branches',
 							})
-						} finally {
-							setSaveInProgress(false)
 						}
-					} else if (!lastFocusedId && shape.props.branch) {
+					} else if (!lastFocusedId) {
 						// First focus of any shape, just switch to its branch
 						try {
-							await switchBranch(shape.props.branch)
+							console.log(`[PreviewShape] First focus, switching to branch for shape ${shape.id}`)
+							await switchBranch(shape.id)
 							toast.addToast({
 								icon: 'check',
-								title: `Switched to branch ${shape.props.branch}`,
+								title: `Switched to branch ${shape.id.split(':')[1]}`,
 							})
 						} catch (error) {
-							console.error('Error switching to initial branch:', error)
+							console.error('[PreviewShape] Error switching to initial branch:', error)
 							toast.addToast({
 								icon: 'cross-2',
 								title: 'Failed to switch to initial branch',
@@ -167,13 +166,13 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 		useEffect(() => {
 			if (focusedPreviewId === shape.id && !isSelected && lastFocusedId === shape.id) {
 				// Only take screenshot and save when this shape was previously focused but now isn't
-				console.log('taking screenshot and saving branch state')
+				console.log('[PreviewShape] Taking screenshot and saving branch state')
 				takeScreenshot()
 
 				// Save changes to this shape's branch if we have one
-				if (gitRepo?.isInitialized && directoryHandle && shape.props.branch) {
+				if (gitRepo?.isInitialized && directoryHandle) {
 					commitLocalDirectory(`Update from shape ${shape.id}`).catch((error) => {
-						console.error('Error saving to branch:', error)
+						console.error('[PreviewShape] Error saving to branch:', error)
 						toast.addToast({
 							icon: 'cross-2',
 							title: 'Failed to save to branch',
@@ -226,27 +225,62 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 
 		return (
 			<HTMLContainer className="tl-embed-container" id={shape.id}>
+				{isIframeLoading && (
+					<div
+						style={{
+							position: 'absolute',
+							top: 0,
+							left: 0,
+							width: '100%',
+							height: '100%',
+							background: 'rgba(255,255,255,0.7)',
+							zIndex: 10,
+							display: 'flex',
+							alignItems: 'center',
+							justifyContent: 'center',
+						}}
+					>
+						<DefaultSpinner />
+					</div>
+				)}
 				<div className="shadow-2xl">
-					{isFocused && (
-						<iframe
-							ref={iframeRef}
-							id={`iframe-${shape.id}`}
-							src={`http://localhost:${port || '3001'}?shapeId=${shape.id}`}
-							width={toDomPrecision(shape.props.w)}
-							height={toDomPrecision(shape.props.h)}
-							draggable={false}
-							style={{
-								pointerEvents: isEditing ? 'auto' : 'none',
-								position: 'relative',
-							}}
-							className="rounded-xl border-[10px] border-blue-500"
-							suppressHydrationWarning
-						/>
-					)}
+					{/* Branch name display */}
+					<div
+						style={{
+							position: 'absolute',
+							top: -30,
+							left: 10,
+							zIndex: 3,
+							background: 'rgba(255, 255, 255, 0.9)',
+							padding: '4px 8px',
+							borderRadius: '4px',
+							fontSize: '12px',
+							fontWeight: 500,
+							boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
+							pointerEvents: 'none',
+						}}
+					>
+						{shape.id.split(':')[1]}
+					</div>
+					<iframe
+						ref={iframeRef}
+						id={`iframe-${shape.id}`}
+						src={`http://localhost:${port || '3001'}?shapeId=${shape.id}`}
+						width={toDomPrecision(shape.props.w)}
+						height={toDomPrecision(shape.props.h)}
+						draggable={false}
+						style={{
+							pointerEvents: isEditing ? 'auto' : 'none',
+							position: 'relative',
+						}}
+						onLoad={() => setIsIframeLoading(false)}
+						className="rounded-xl border-[10px] border-blue-500"
+						suppressHydrationWarning
+					/>
 
 					{!isFocused && !!shape.props.screenshot && (
 						<div
-							className="rounded-xl shadow-2xl  border-white"
+							className="rounded-xl shadow-2xl  border-[10px]  border-white"
 							style={{
 								position: 'absolute',
 								top: 0,
@@ -288,7 +322,6 @@ export class PreviewShapeUtil extends BaseBoxShapeUtil<PreviewShape> {
 								props: {
 									w: shape.props.w,
 									h: shape.props.h,
-									branch: uuidv4(),
 								},
 							})
 

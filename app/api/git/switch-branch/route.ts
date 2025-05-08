@@ -143,6 +143,34 @@ export async function POST(request: Request) {
 			console.log(`[Switch Branch] Branch ${branchName} already exists`)
 		}
 
+		// Get the latest commit SHA for the branch
+		const refResponse = await fetch(
+			`https://api.github.com/repos/${owner}/${repoName}/git/refs/heads/${branchName}`,
+			{
+				headers: {
+					Authorization: `token ${GITHUB_TOKEN}`,
+					Accept: 'application/vnd.github.v3+json',
+					'X-GitHub-Api-Version': '2022-11-28',
+				},
+			}
+		)
+		const refData = await refResponse.json()
+		const commitSha = refData.object.sha
+
+		// Get the commit object to get the tree SHA
+		const commitResponse = await fetch(
+			`https://api.github.com/repos/${owner}/${repoName}/git/commits/${commitSha}`,
+			{
+				headers: {
+					Authorization: `token ${GITHUB_TOKEN}`,
+					Accept: 'application/vnd.github.v3+json',
+					'X-GitHub-Api-Version': '2022-11-28',
+				},
+			}
+		)
+		const commitData = await commitResponse.json()
+		const treeSha = commitData.tree.sha
+
 		// Get the tree for the branch
 		console.log(`[Switch Branch] Getting tree for branch ${branchName}`)
 		const treeResponse = await fetch(
@@ -212,6 +240,8 @@ export async function POST(request: Request) {
 			success: true,
 			message: `Successfully switched to branch ${branchName}`,
 			files,
+			commitSha,
+			treeSha,
 		})
 	} catch (error) {
 		console.error('[Switch Branch] Error:', error)

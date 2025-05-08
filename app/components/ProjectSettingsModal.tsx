@@ -75,7 +75,12 @@ export function ProjectSettingsModal({
 	// Handle click outside of modal
 	useEffect(() => {
 		function handleClickOutside(event: MouseEvent) {
-			if (modalRef.current && !modalRef.current.contains(event.target as Node) && directoryHandle) {
+			if (
+				modalRef.current &&
+				!modalRef.current.contains(event.target as Node) &&
+				directoryHandle &&
+				!isLoading
+			) {
 				setModalOpen(false)
 			}
 		}
@@ -290,7 +295,7 @@ export function ProjectSettingsModal({
 								</div>
 
 								<div className="flex justify-end gap-3">
-									{isDirectorySet && (
+									{isDirectorySet && !isLoading && (
 										<button
 											type="button"
 											className="px-5 py-2.5 bg-transparent border border-gray-300 rounded-md cursor-pointer text-sm text-gray-600 hover:bg-gray-100 transition-colors"

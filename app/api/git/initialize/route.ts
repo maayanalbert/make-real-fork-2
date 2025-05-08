@@ -15,6 +15,8 @@ interface FileEntry {
  */
 export async function POST(request: Request) {
 	console.log('API route hit: /api/git/initialize')
+	let latestCommitSha: string | undefined = undefined
+	let latestTreeSha: string | undefined = undefined
 	try {
 		if (!GITHUB_TOKEN) {
 			console.error('[INIT] GitHub token not configured')
@@ -117,7 +119,15 @@ export async function POST(request: Request) {
 				repo: repoName,
 				ref: `heads/${branch}`,
 			})
-			const latestCommitSha = refData.object.sha
+			latestCommitSha = refData.object.sha
+
+			// Fetch the commit object to get the tree SHA
+			const { data: commitData } = await octokit.git.getCommit({
+				owner,
+				repo: repoName,
+				commit_sha: latestCommitSha,
+			})
+			latestTreeSha = commitData.tree.sha
 
 			// If there are more files, create them using blobs/tree approach
 			// if (filteredFiles.length > 1) {
@@ -197,6 +207,8 @@ export async function POST(request: Request) {
 			url: createRepoData.html_url,
 			initialCommit: true,
 			files: results,
+			commitSha: latestCommitSha,
+			treeSha: latestTreeSha,
 		})
 	} catch (error) {
 		console.error('Error initializing repository:', error)

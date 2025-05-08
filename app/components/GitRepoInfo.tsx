@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useProjectSettings } from '../lib/ProjectSettingsContext'
 import { useGitRepository } from '../lib/useGitRepository'
+import { createShapeId } from 'tldraw'
+
+// Helper function to format branch name as shape ID
+const formatAsBranchId = (branchName: string) => {
+	// Create a shape ID with the branch name as the second part
+	return `${createShapeId().replace(/:.+$/, '')}:${branchName}`
+}
 
 export default function GitRepoInfo() {
 	const {
@@ -72,7 +79,9 @@ export default function GitRepoInfo() {
 		if (!newBranchName.trim()) return
 
 		try {
-			await switchBranch(newBranchName.trim())
+			// Format the branch name as a shape ID
+			const branchShapeId = formatAsBranchId(newBranchName.trim())
+			await switchBranch(branchShapeId)
 			setNewBranchName('')
 		} catch (err) {
 			console.error('Failed to create branch:', err)
@@ -85,7 +94,9 @@ export default function GitRepoInfo() {
 		if (!branchName || branchName === gitRepo?.currentBranch) return
 
 		try {
-			await switchBranch(branchName)
+			// Format the branch name as a shape ID
+			const branchShapeId = formatAsBranchId(branchName)
+			await switchBranch(branchShapeId)
 			setSelectedBranch(branchName)
 		} catch (err) {
 			console.error('Failed to switch branch:', err)
