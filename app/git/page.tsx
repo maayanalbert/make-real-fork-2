@@ -18,12 +18,58 @@ export default function GitPage() {
 	// Initialize git
 	const initGit = async () => {
 		if (!directoryHandle) return
-		const fs = new FileSystemAPIFs(directoryHandle).promises
+		setIsLoading(true)
+		setError(null)
 
 		try {
+			const fs = new FileSystemAPIFs(directoryHandle).promises
+
+			// Create all required git directories first
+			await ensureGitDirectories()
+
+			// Initialize git
 			await git.init({ fs, dir: '/' })
+
+			// Get and display status after initialization
+			await refreshGitStatus()
 		} catch (err) {
 			console.error('Error initializing git:', err)
+			setError('Failed to initialize git repository')
+		} finally {
+			setIsLoading(false)
+		}
+	}
+
+	// Pre-create all required git directories
+	const ensureGitDirectories = async () => {
+		if (!directoryHandle) return
+		try {
+			const fs = new FileSystemAPIFs(directoryHandle)
+
+			// Create basic git structure
+			await fs.promises.mkdir('.git')
+			await fs.promises.mkdir('.git/objects')
+			await fs.promises.mkdir('.git/refs')
+			await fs.promises.mkdir('.git/refs/heads')
+			await fs.promises.mkdir('.git/refs/tags')
+
+			// Create common hash prefix directories
+			// This covers all possible first byte values for hash prefixes
+			for (let i = 0; i < 256; i++) {
+				const prefix = i.toString(16).padStart(2, '0')
+				try {
+					await fs.promises.mkdir(`.git/objects/${prefix}`)
+					console.log(`Created .git/objects/${prefix} directory`)
+				} catch (err) {
+					// Ignore errors if directory already exists
+					console.log(`Directory may already exist: .git/objects/${prefix}`)
+				}
+			}
+
+			console.log('Successfully created all git directories')
+		} catch (err) {
+			console.error('Error creating git directories:', err)
+			throw err // Re-throw to be handled by caller
 		}
 	}
 
@@ -70,6 +116,9 @@ export default function GitPage() {
 		setError(null)
 
 		try {
+			// Ensure git directories exist first
+			await ensureGitDirectories()
+
 			const fs = new FileSystemAPIFs(directoryHandle).promises
 			await git.branch({ fs, dir: '/', ref: newBranchName })
 			setNewBranchName('')
@@ -89,6 +138,9 @@ export default function GitPage() {
 		setError(null)
 
 		try {
+			// Ensure git directories exist first
+			await ensureGitDirectories()
+
 			const fs = new FileSystemAPIFs(directoryHandle).promises
 			await git.checkout({ fs, dir: '/', ref: branchName })
 			await refreshGitStatus()
@@ -107,6 +159,9 @@ export default function GitPage() {
 		setError(null)
 
 		try {
+			// IMPORTANT: Always ensure ALL git directories exist before committing
+			await ensureGitDirectories()
+
 			const fs = new FileSystemAPIFs(directoryHandle).promises
 
 			// Stage all changes
@@ -132,7 +187,13 @@ export default function GitPage() {
 			await refreshGitStatus()
 		} catch (err) {
 			console.error('Error committing changes:', err)
-			setError('Failed to commit changes')
+			let errorMessage = 'Failed to commit changes'
+			if (err instanceof Error) {
+				errorMessage += `: ${err.message}`
+				// Add additional details for debugging
+				console.error('Stack trace:', err.stack)
+			}
+			setError(errorMessage)
 		} finally {
 			setIsLoading(false)
 		}
@@ -141,8 +202,17 @@ export default function GitPage() {
 	// Initialize git and refresh status on mount
 	useEffect(() => {
 		if (directoryHandle) {
-			initGit()
-			refreshGitStatus()
+			// Ensure git directories exist first, then initialize
+			const setup = async () => {
+				try {
+					await ensureGitDirectories()
+					await initGit()
+				} catch (err) {
+					console.error('Error during setup:', err)
+					setError('Failed to set up Git environment')
+				}
+			}
+			setup()
 		}
 	}, [directoryHandle])
 
@@ -252,6 +322,15 @@ export default function GitPage() {
 					className="px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
 				>
 					Refresh Status
+				</button>
+
+				{/* Add a button to explicitly create all git directories */}
+				<button
+					onClick={ensureGitDirectories}
+					disabled={isLoading}
+					className="ml-2 px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700 disabled:opacity-50"
+				>
+					Repair Git Directories
 				</button>
 			</div>
 		</div>
