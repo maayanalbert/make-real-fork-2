@@ -1,6 +1,7 @@
 'use client'
 
 import dynamic from 'next/dynamic'
+import Link from 'next/link'
 import 'tldraw/tldraw.css'
 import { PreviewShapeUtil } from './PreviewShape/PreviewShape'
 import { FocusPreviewProvider } from './PreviewShape/FocusPreviewContext'
@@ -81,15 +82,20 @@ export default function App() {
 	const [isModalOpen, setIsModalOpen] = useState(false)
 
 	return (
-		<ProjectSettingsProvider>
-			<div className="editor">
-				<FocusPreviewProvider>
-					<Tldraw shapeUtils={shapeUtils} components={components}>
-						<InitialPreviewShape />
-						<ProjectSettingsModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
-					</Tldraw>
-				</FocusPreviewProvider>
-			</div>
-		</ProjectSettingsProvider>
+		<div className="editor">
+			<FocusPreviewProvider>
+				<Tldraw shapeUtils={shapeUtils} components={components}>
+					<InitialPreviewShape />
+					<ProjectSettingsModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
+				</Tldraw>
+			</FocusPreviewProvider>
+
+			{/* Git Mirror Link */}
+			<Link href="/git-mirror">
+				<div className="fixed z-50 bottom-5 right-5 bg-indigo-600 text-white px-4 py-2 rounded-md shadow-lg hover:bg-indigo-700 transition-colors">
+					Git Mirror DB
+				</div>
+			</Link>
+		</div>
 	)
 }

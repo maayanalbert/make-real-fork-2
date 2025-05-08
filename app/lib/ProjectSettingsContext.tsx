@@ -1,3 +1,5 @@
+'use client'
+
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react'
 
 // Permission states
@@ -33,12 +35,7 @@ type ProjectSettingsContextType = {
 	setPort: (port: string) => void
 }
 
-// Add window.showDirectoryPicker declaration
-declare global {
-	interface Window {
-		showDirectoryPicker?: () => Promise<FileSystemDirectoryHandle>
-	}
-}
+// Note: window.showDirectoryPicker is already declared in typings.d.ts
 
 const ProjectSettingsContext = createContext<ProjectSettingsContextType | undefined>(undefined)
 
