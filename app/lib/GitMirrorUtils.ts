@@ -52,7 +52,8 @@ const parseGitignore = (content: string): string[] => {
 const readFilesRecursively = async (
 	dirHandle: FileSystemDirectoryHandle,
 	path = '',
-	ignorePatterns: string[] = []
+	ignorePatterns: string[] = [],
+	specificFiles?: string[]
 ): Promise<{ path: string; content: string }[]> => {
 	const results: { path: string; content: string }[] = []
 
@@ -79,6 +80,43 @@ const readFilesRecursively = async (
 			} catch (error) {
 				console.log('No .gitignore file found, using default patterns')
 			}
+		}
+
+		// If specific files are provided, try to read only those
+		if (specificFiles && specificFiles.length > 0 && path === '') {
+			for (const filePath of specificFiles) {
+				// Split the path into directory parts and filename
+				const parts = filePath.split('/')
+				const fileName = parts.pop() || ''
+				const dirPath = parts.join('/')
+
+				try {
+					// Navigate to directory
+					let currentDirHandle = dirHandle
+					if (dirPath) {
+						const dirParts = dirPath.split('/')
+						for (const part of dirParts) {
+							if (currentDirHandle.getDirectoryHandle) {
+								currentDirHandle = await currentDirHandle.getDirectoryHandle(part)
+							} else {
+								throw new Error(`Cannot navigate to directory: ${part}`)
+							}
+						}
+					}
+
+					// Get the file
+					if (currentDirHandle.getFileHandle) {
+						const fileHandle = await currentDirHandle.getFileHandle(fileName)
+						const file = await fileHandle.getFile()
+						const content = await file.text()
+						results.push({ path: filePath, content })
+					}
+				} catch (error) {
+					console.error(`Error reading specific file ${filePath}:`, error)
+				}
+			}
+
+			return results
 		}
 
 		// Read directory entries

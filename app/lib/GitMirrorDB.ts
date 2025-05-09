@@ -250,6 +250,115 @@ class GitMirrorDB extends EventEmitter {
 		}
 	}
 
+	// List all branches in the repository
+	public async listBranches(): Promise<string[]> {
+		try {
+			// First check if the repository is initialized
+			const initialized = await this.isRepoInitialized()
+			if (!initialized) {
+				return []
+			}
+
+			// Get both local and remote branches
+			const branches = await git.listBranches({ fs: this.fs, dir: REPO_DIR })
+			return branches
+		} catch (error) {
+			console.error('[GitMirrorDB] Failed to list branches:', error)
+			return []
+		}
+	}
+
+	// Create a new branch
+	public async createBranch(branchName: string): Promise<void> {
+		try {
+			// Check if repository is initialized
+			const initialized = await this.isRepoInitialized()
+			if (!initialized) {
+				throw new Error('Repository not initialized')
+			}
+
+			// Create the branch
+			await git.branch({ fs: this.fs, dir: REPO_DIR, ref: branchName })
+
+			// Record operation
+			await this.recordOperation('create-branch', {
+				timestamp: Date.now(),
+				branchName,
+			})
+
+			this.emit('branch-created', branchName)
+			return Promise.resolve()
+		} catch (error) {
+			console.error('[GitMirrorDB] Failed to create branch:', error)
+			return Promise.reject(error)
+		}
+	}
+
+	// Checkout a branch (creates it if it doesn't exist)
+	public async checkout(branchName: string): Promise<void> {
+		try {
+			// Check if repository is initialized
+			const initialized = await this.isRepoInitialized()
+			if (!initialized) {
+				throw new Error('Repository not initialized')
+			}
+
+			console.log(`[GitMirrorDB] Attempting to checkout branch: ${branchName}`)
+
+			// Get list of existing branches
+			const branches = await this.listBranches()
+			console.log(`[GitMirrorDB] Available branches: ${branches.join(', ')}`)
+
+			// Create branch if it doesn't exist
+			if (!branches.includes(branchName)) {
+				console.log(`[GitMirrorDB] Branch ${branchName} does not exist, creating it`)
+				await this.createBranch(branchName)
+			} else {
+				console.log(`[GitMirrorDB] Branch ${branchName} exists, checking out`)
+			}
+
+			// Checkout the branch
+			await git.checkout({
+				fs: this.fs,
+				dir: REPO_DIR,
+				ref: branchName,
+			})
+
+			// Verify the checkout worked by getting current branch
+			const currentBranch = await this.getCurrentBranch()
+			console.log(`[GitMirrorDB] Current branch after checkout: ${currentBranch}`)
+
+			// Record operation
+			await this.recordOperation('checkout', {
+				timestamp: Date.now(),
+				branchName,
+			})
+
+			this.emit('branch-checked-out', branchName)
+			return Promise.resolve()
+		} catch (error) {
+			console.error('[GitMirrorDB] Failed to checkout branch:', error)
+			return Promise.reject(error)
+		}
+	}
+
+	// Get current branch name
+	public async getCurrentBranch(): Promise<string> {
+		try {
+			// Check if repository is initialized
+			const initialized = await this.isRepoInitialized()
+			if (!initialized) {
+				throw new Error('Repository not initialized')
+			}
+
+			const currentBranch = await git.currentBranch({ fs: this.fs, dir: REPO_DIR })
+			return currentBranch || 'main'
+		} catch (error) {
+			console.error('[GitMirrorDB] Failed to get current branch:', error)
+			return 'main' // Default to main if error
+		}
+	}
+
 	// Record operation to IndexedDB for history
 	private async recordOperation(type: string, details: Record<string, any>): Promise<void> {
 		if (!this.db) {

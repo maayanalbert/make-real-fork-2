@@ -21,6 +21,12 @@ type GitMirrorContextType = {
 	commits: any[]
 	operationHistory: any[]
 	refreshData: () => Promise<void>
+	listBranches: () => Promise<string[]>
+	createBranch: (branchName: string) => Promise<void>
+	checkout: (branchName: string) => Promise<void>
+	getCurrentBranch: () => Promise<string>
+	branches: string[]
+	currentBranch: string
 }
 
 const GitMirrorContext = createContext<GitMirrorContextType | undefined>(undefined)
@@ -31,6 +37,8 @@ export function GitMirrorProvider({ children }: { children: ReactNode }) {
 	const [fileList, setFileList] = useState<string[]>([])
 	const [commits, setCommits] = useState<any[]>([])
 	const [operationHistory, setOperationHistory] = useState<any[]>([])
+	const [branches, setBranches] = useState<string[]>([])
+	const [currentBranch, setCurrentBranch] = useState<string>('main')
 	const { directoryHandle } = useProjectSettings()
 
 	// Get DB instance
@@ -61,11 +69,23 @@ export function GitMirrorProvider({ children }: { children: ReactNode }) {
 			refreshData()
 		}
 
+		const onBranchCreated = () => {
+			console.log('[GitMirrorContext] Branch created')
+			refreshData()
+		}
+
+		const onBranchCheckedOut = () => {
+			console.log('[GitMirrorContext] Branch checked out')
+			refreshData()
+		}
+
 		// Add event listeners
 		gitMirrorDB.on('ready', onReady)
 		gitMirrorDB.on('repo-initialized', onRepoInitialized)
 		gitMirrorDB.on('file-added', onFileAdded)
 		gitMirrorDB.on('committed', onCommitted)
+		gitMirrorDB.on('branch-created', onBranchCreated)
+		gitMirrorDB.on('branch-checked-out', onBranchCheckedOut)
 
 		// Check initial status if DB is already ready
 		if (gitMirrorDB.getFS()) {
@@ -79,6 +99,8 @@ export function GitMirrorProvider({ children }: { children: ReactNode }) {
 			gitMirrorDB.off('repo-initialized', onRepoInitialized)
 			gitMirrorDB.off('file-added', onFileAdded)
 			gitMirrorDB.off('committed', onCommitted)
+			gitMirrorDB.off('branch-created', onBranchCreated)
+			gitMirrorDB.off('branch-checked-out', onBranchCheckedOut)
 		}
 	}, [])
 
@@ -124,6 +146,22 @@ export function GitMirrorProvider({ children }: { children: ReactNode }) {
 				setOperationHistory(history)
 			} catch (error) {
 				console.error('[GitMirrorContext] Failed to get operation history:', error)
+			}
+
+			try {
+				// Get branches
+				const branchesList = await gitMirrorDB.listBranches()
+				setBranches(branchesList)
+			} catch (error) {
+				console.error('[GitMirrorContext] Failed to list branches:', error)
+			}
+
+			try {
+				// Get current branch
+				const branch = await gitMirrorDB.getCurrentBranch()
+				setCurrentBranch(branch)
+			} catch (error) {
+				console.error('[GitMirrorContext] Failed to get current branch:', error)
 			}
 		} catch (error) {
 			console.error('[GitMirrorContext] Failed to refresh data:', error)
@@ -253,6 +291,123 @@ export function GitMirrorProvider({ children }: { children: ReactNode }) {
 		}
 	}
 
+	// Get list of branches
+	const listBranches = async () => {
+		try {
+			const branches = await gitMirrorDB.listBranches()
+			setBranches(branches)
+			return branches
+		} catch (error) {
+			console.error('[GitMirrorContext] Failed to list branches:', error)
+			throw error
+		}
+	}
+
+	// Create a new branch
+	const createBranch = async (branchName: string) => {
+		try {
+			await gitMirrorDB.createBranch(branchName)
+
+			// Update branches list
+			await listBranches()
+		} catch (error) {
+			console.error('[GitMirrorContext] Failed to create branch:', error)
+			throw error
+		}
+	}
+
+	// Checkout a branch
+	const checkout = async (branchName: string) => {
+		try {
+			await gitMirrorDB.checkout(branchName)
+
+			// Update current branch after checkout
+			const branch = await gitMirrorDB.getCurrentBranch()
+			setCurrentBranch(branch)
+
+			// Also refresh file list since different branches might have different files
+			const files = await gitMirrorDB.listFiles()
+			setFileList(files)
+
+			// If we have a directory handle, write the branch files to the local filesystem
+			if (directoryHandle) {
+				console.log(`[GitMirrorContext] Writing branch ${branchName} files to local filesystem`)
+
+				// For each file in the branch, write it to the local filesystem
+				for (const fileName of files) {
+					try {
+						const content = await gitMirrorDB.getFileContent(fileName)
+						await writeFileToLocalFilesystem(directoryHandle, fileName, content)
+					} catch (error) {
+						console.error(`[GitMirrorContext] Failed to write file ${fileName}:`, error)
+					}
+				}
+
+				console.log(
+					`[GitMirrorContext] Successfully wrote ${files.length} files to local filesystem`
+				)
+			} else {
+				console.log(
+					`[GitMirrorContext] No directory handle available, skipping write to local filesystem`
+				)
+			}
+		} catch (error) {
+			console.error('[GitMirrorContext] Failed to checkout branch:', error)
+			throw error
+		}
+	}
+
+	// Helper function to write a file to the local filesystem
+	const writeFileToLocalFilesystem = async (
+		directoryHandle: any,
+		filePath: string,
+		content: string
+	): Promise<void> => {
+		// Split the path into directories and filename
+		const pathParts = filePath.split('/')
+		const fileName = pathParts.pop() || ''
+
+		// Navigate to the correct directory
+		let currentDirHandle = directoryHandle
+		for (const dir of pathParts) {
+			if (dir) {
+				try {
+					// Try to get the subdirectory, create it if it doesn't exist
+					currentDirHandle = await currentDirHandle.getDirectoryHandle(dir, { create: true })
+				} catch (err) {
+					console.error(`[GitMirrorContext] Error accessing/creating directory ${dir}:`, err)
+					throw err
+				}
+			}
+		}
+
+		// Create/open the file
+		const fileHandle = await currentDirHandle.getFileHandle(fileName, { create: true })
+
+		// Create a writable stream
+		const writable = await fileHandle.createWritable()
+
+		// Write the content
+		await writable.write(content)
+
+		// Close the file
+		await writable.close()
+
+		console.log(`[GitMirrorContext] Successfully wrote file: ${filePath}`)
+	}
+
+	// Get current branch
+	const getCurrentBranch = async () => {
+		try {
+			const branch = await gitMirrorDB.getCurrentBranch()
+			setCurrentBranch(branch)
+			return branch
+		} catch (error) {
+			console.error('[GitMirrorContext] Failed to get current branch:', error)
+			throw error
+		}
+	}
+
 	const contextValue: GitMirrorContextType = {
 		isReady,
 		isRepoInitialized,
@@ -268,6 +423,12 @@ export function GitMirrorProvider({ children }: { children: ReactNode }) {
 		commits,
 		operationHistory,
 		refreshData,
+		listBranches,
+		createBranch,
+		checkout,
+		getCurrentBranch,
+		branches,
+		currentBranch,
 	}
 
 	return <GitMirrorContext.Provider value={contextValue}>{children}</GitMirrorContext.Provider>
