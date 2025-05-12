@@ -319,6 +319,30 @@ export function GitMirrorProvider({ children }: { children: ReactNode }) {
 	// Checkout a branch
 	const checkout = async (branchName: string) => {
 		try {
+			// First get the list of files in the current branch before switching
+			const currentBranchName = await gitMirrorDB.getCurrentBranch()
+			const currentBranchFiles = await gitMirrorDB.listFiles()
+			const currentFilesMap = new Map<string, string>()
+
+			// Build a map of current branch file contents for comparison
+			if (directoryHandle && currentBranchName !== branchName) {
+				console.log(
+					`[GitMirrorContext] Preparing for efficient branch switch from ${currentBranchName} to ${branchName}`
+				)
+				for (const fileName of currentBranchFiles) {
+					try {
+						const content = await gitMirrorDB.getFileContent(fileName)
+						currentFilesMap.set(fileName, content)
+					} catch (error) {
+						console.error(
+							`[GitMirrorContext] Failed to read file content for comparison: ${fileName}`,
+							error
+						)
+					}
+				}
+			}
+
+			// Perform the actual branch checkout
 			await gitMirrorDB.checkout(branchName)
 
 			// Update current branch after checkout
@@ -331,20 +355,69 @@ export function GitMirrorProvider({ children }: { children: ReactNode }) {
 
 			// If we have a directory handle, write the branch files to the local filesystem
 			if (directoryHandle) {
-				console.log(`[GitMirrorContext] Writing branch ${branchName} files to local filesystem`)
+				console.log(`[GitMirrorContext] Updating local filesystem for branch ${branchName}`)
 
-				// For each file in the branch, write it to the local filesystem
+				// Keep track of changed files
+				let filesWritten = 0
+				let filesSkipped = 0
+				let filesAdded = 0
+
+				// Check each file in the new branch
 				for (const fileName of files) {
 					try {
 						const content = await gitMirrorDB.getFileContent(fileName)
-						await writeFileToLocalFilesystem(directoryHandle, fileName, content)
+
+						// Check if the file exists in the previous branch with the same content
+						const previousContent = currentFilesMap.get(fileName)
+
+						if (currentBranchName === branchName) {
+							// Just checking out the same branch again - write all files
+							await writeFileToLocalFilesystem(directoryHandle, fileName, content)
+							filesWritten++
+						} else if (!previousContent) {
+							// File is new in this branch - write it
+							await writeFileToLocalFilesystem(directoryHandle, fileName, content)
+							filesAdded++
+						} else if (previousContent !== content) {
+							// File exists in both branches but has changed - write it
+							await writeFileToLocalFilesystem(directoryHandle, fileName, content)
+							filesWritten++
+						} else {
+							// File exists in both branches with identical content - skip
+							filesSkipped++
+						}
+
+						// Remove this file from the map as we've processed it
+						currentFilesMap.delete(fileName)
 					} catch (error) {
 						console.error(`[GitMirrorContext] Failed to write file ${fileName}:`, error)
 					}
 				}
 
+				// Any files remaining in the map were in the old branch but not in the new one
+				// These files should be deleted from the filesystem
+				const filesRemoved = currentFilesMap.size
+
+				// Delete files that are in the old branch but not in the new branch
+				if (filesRemoved > 0 && currentBranchName !== branchName) {
+					console.log(
+						`[GitMirrorContext] Removing ${filesRemoved} files that don't exist in the new branch`
+					)
+
+					// Convert map keys to array before iterating
+					const filesToRemove = Array.from(currentFilesMap.keys())
+					for (const fileName of filesToRemove) {
+						try {
+							await deleteFileFromLocalFilesystem(directoryHandle, fileName)
+							console.log(`[GitMirrorContext] Deleted file: ${fileName}`)
+						} catch (error) {
+							console.error(`[GitMirrorContext] Failed to delete file ${fileName}:`, error)
+						}
+					}
+				}
+
 				console.log(
-					`[GitMirrorContext] Successfully wrote ${files.length} files to local filesystem`
+					`[GitMirrorContext] Branch switch complete: ${filesAdded} files added, ${filesWritten} files updated, ${filesSkipped} files unchanged, ${filesRemoved} files removed`
 				)
 			} else {
 				console.log(
@@ -394,6 +467,35 @@ export function GitMirrorProvider({ children }: { children: ReactNode }) {
 		await writable.close()
 
 		console.log(`[GitMirrorContext] Successfully wrote file: ${filePath}`)
+	}
+
+	// Helper function to delete a file from the local filesystem
+	const deleteFileFromLocalFilesystem = async (
+		directoryHandle: any,
+		filePath: string
+	): Promise<void> => {
+		// Split the path into directories and filename
+		const pathParts = filePath.split('/')
+		const fileName = pathParts.pop() || ''
+
+		// Navigate to the correct directory
+		let currentDirHandle = directoryHandle
+		for (const dir of pathParts) {
+			if (dir) {
+				try {
+					// Try to get the subdirectory, create it if it doesn't exist
+					currentDirHandle = await currentDirHandle.getDirectoryHandle(dir, { create: true })
+				} catch (err) {
+					console.error(`[GitMirrorContext] Error accessing/creating directory ${dir}:`, err)
+					throw err
+				}
+			}
+		}
+
+		// Delete the file
+		await currentDirHandle.removeEntry(fileName)
+
+		console.log(`[GitMirrorContext] Successfully deleted file: ${filePath}`)
 	}
 
 	// Get current branch

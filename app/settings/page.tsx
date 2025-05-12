@@ -1,7 +1,6 @@
 'use client'
 
 import { ProjectSettingsProvider, useProjectSettings } from '../lib/ProjectSettingsContext'
-import GitRepoInfo from '../components/GitRepoInfo'
 import { FocusPreviewProvider } from '../PreviewShape/FocusPreviewContext'
 
 export default function SettingsPage() {
@@ -43,8 +42,6 @@ function SettingsContent() {
 						</div>
 					</div>
 				</div>
-
-				<GitRepoInfo />
 			</div>
 		</div>
 	)

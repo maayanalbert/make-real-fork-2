@@ -482,13 +482,13 @@ export default function GitMirrorPage() {
 																		if (
 																			directoryHandle &&
 																			window.confirm(
-																				`Checkout branch '${branch}'? This will also update your local files to match this branch, potentially overwriting local changes.`
+																				`Checkout branch '${branch}'? This will efficiently update your local files to match this branch, only writing changed files.`
 																			)
 																		) {
 																			setLoading(true)
 																			setError(null)
 
-																			// Checkout branch (which now automatically pulls files)
+																			// Checkout branch (which now efficiently updates files)
 																			await checkout(branch)
 
 																			// Explicitly update UI state
@@ -496,7 +496,7 @@ export default function GitMirrorPage() {
 																			await refreshData()
 
 																			setSuccess(
-																				`Switched to branch ${branch} and updated local files`
+																				`Switched to branch ${branch} and efficiently updated local files`
 																			)
 																			setTimeout(() => setSuccess(null), 3000)
 																		}
@@ -511,7 +511,7 @@ export default function GitMirrorPage() {
 																}}
 																className="text-blue-500 hover:text-blue-700 text-sm"
 																disabled={loading}
-																title="Checkout this branch and update your local files to match"
+																title="Checkout this branch and efficiently update your local files"
 															>
 																Checkout
 															</button>
@@ -558,7 +558,9 @@ export default function GitMirrorPage() {
 												// Also refresh file list since we've changed branches
 												await refreshData()
 
-												setSuccess(`Created and switched to branch ${newBranchName}`)
+												setSuccess(
+													`Created and switched to branch ${newBranchName} with efficient file updates`
+												)
 												setTimeout(() => setSuccess(null), 3000)
 
 												// Reset the form

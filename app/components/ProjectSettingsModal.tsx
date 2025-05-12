@@ -189,7 +189,7 @@ export function ProjectSettingsModal({
 		}
 	}
 
-	const canSubmit = !!(directoryHandle || selectedHandle) && !!newPort && !permissionError
+	const canSubmit = !!newPort ///!!(directoryHandle || selectedHandle) && !!newPort //&& !permissionError
 	const isDirectorySet = !!directoryHandle
 	const displayPath = selectedHandle?.name || directoryHandle?.name || ''
 
@@ -291,7 +291,7 @@ export function ProjectSettingsModal({
 									<button
 										type="submit"
 										className="px-5 py-2.5 bg-blue-500 hover:bg-blue-600 text-white border-none rounded-md cursor-pointer text-sm font-medium transition-colors disabled:bg-blue-300 disabled:cursor-not-allowed flex items-center gap-2"
-										disabled={!canSubmit || isLoading}
+										// disabled={!canSubmit || isLoading}
 									>
 										{isLoading ? (
 											<>

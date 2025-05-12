@@ -26,7 +26,7 @@ const components = {
 	HelpMenu: null,
 	ZoomMenu: null,
 	NavigationPanel: null,
-	Toolbar: null,
+	// Toolbar: null,
 	StatusBar: null,
 	RichTextToolbar: null,
 	KeyboardShortcutsDialog: null,
@@ -78,24 +78,71 @@ function InitialPreviewShape() {
 	return null
 }
 
-export default function App() {
-	const [isModalOpen, setIsModalOpen] = useState(false)
+// Component to handle dark mode shape visibility
+function DarkModeShapeManager() {
+	const editor = useEditor()
 
+	useEffect(() => {
+		if (!editor) return
+
+		const unsubscribe = editor.store.listen(() => {
+			const isDarkMode = editor.user.getUserPreferences().isDarkMode
+			const shapes = editor.getCurrentPageShapes()
+
+			shapes.forEach((shape) => {
+				if (shape.type !== 'response') {
+					editor.updateShape({
+						id: shape.id,
+						type: shape.type,
+						opacity: isDarkMode ? 0 : 1,
+						isLocked: isDarkMode,
+					})
+				}
+			})
+		})
+
+		return () => {
+			unsubscribe()
+		}
+	}, [editor])
+
+	return null
+}
+
+// Component to show ProjectSettingsModal only in dark mode
+function DarkModeProjectSettingsModal() {
+	const editor = useEditor()
+	const [isModalOpen, setIsModalOpen] = useState(false)
+	const [isDarkMode, setIsDarkMode] = useState(false)
+
+	useEffect(() => {
+		if (!editor) return
+
+		const unsubscribe = editor.store.listen(() => {
+			const isDarkMode = editor.user.getUserPreferences().isDarkMode
+			setIsDarkMode(isDarkMode)
+		})
+
+		return () => {
+			unsubscribe()
+		}
+	}, [editor])
+
+	return isDarkMode ? undefined : (
+		<ProjectSettingsModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
+	)
+}
+
+export default function App() {
 	return (
 		<div className="editor">
 			<FocusPreviewProvider>
-				<Tldraw shapeUtils={shapeUtils} components={components}>
+				<Tldraw shapeUtils={shapeUtils} persistenceKey="hi" components={components}>
 					<InitialPreviewShape />
-					<ProjectSettingsModal isOpen={isModalOpen} setIsOpen={setIsModalOpen} />
+					<DarkModeShapeManager />
+					<DarkModeProjectSettingsModal />
 				</Tldraw>
 			</FocusPreviewProvider>
-
-			{/* Git Mirror Link */}
-			<Link href="/git-mirror">
-				<div className="fixed z-50 bottom-5 right-5 bg-indigo-600 text-white px-4 py-2 rounded-md shadow-lg hover:bg-indigo-700 transition-colors">
-					Git Mirror DB
-				</div>
-			</Link>
 		</div>
 	)
 }
